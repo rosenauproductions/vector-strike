@@ -2,6 +2,13 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v3 (24 Oct ~17:10)
+- Options: INVERT STICK (default for every player; lobby X still toggles per player) and TURN SPEED 1-10 (5 = normal; scales flight turn rates, rail strafe speed, keyboard aim). Saved as `invert=` / `turn=` in vectorstrike.cfg.
+- Four wing lasers fire together every 0.16 s. In your own view they streak in from the four screen corners (screen space) and converge on the sight like the arcade cabinet; wingmates see them leave your four wingtips in 3D.
+- Fire: A, B (the Nintendo "A" position) or RB. Test switch `VS_AUTOFIRE=1`.
+- Deployed md5 `c7293a6b22c99eb232386d5b2ed5b43f` (previous kept as `vectorstrike_prev_7a84d2fd.x86_64`).
+- **Git**: local repo (commit 0be9bee: src, tools, modelpack, assets_src GLBs, pkg, HANDOVER.md, README.md) saved as `roms/ports/Claude outputs/vector-strike.bundle` + `PUSH-VECTOR-STRIKE.txt`. Waiting for Chris to create the empty private repo `rosenauproductions/vector-strike`; then add_repo (push) and push, or Chris pushes the bundle from the Mac.
+
 ## v2 (24 Oct ~17:20): Chris's models + open-space flight
 - **Model pack**: `roms/ports/vectorstrike/modelpack/player.vsm` (X-wing), `enemy.vsm` (TIE), `station.vsm` (Death Star), made from Chris's own Sketchfab GLBs with `tools/glb2vsm.py` (quadric decimation per part → feature edges > 30°; the Death Star's smooth hull becomes lat/long rings + equatorial trench, dish edges from the mesh; laser effect pieces dropped). The game loads them at start (`model: loaded ...` log lines) and falls back to its built-in ships if the folder is missing (`VS_NOPACK=1` forces built-in). Edges are sorted longest-first for level of detail. The binary itself has no Star Wars content; the title stays "Vector Strike" (Claude declined renaming it to Star Wars even though Chris said it's personal use).
   - Converter orientation matrices: TIE `[[-0.941,-0.322,-0.101],[-0.296,0.932,-0.211],[-0.162,0.169,0.972]]`, X-wing `[[0.9246,-0.0745,0.3736],[-0.06,-0.997,-0.05],[-0.3758,-0.0243,0.9266]]` (faces 2600, max 1300), Death Star `[[-1,0,0],[0,1,0],[0,0,-1]] --sphere "main hull" --skip laser`.

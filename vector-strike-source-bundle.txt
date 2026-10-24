@@ -438,7 +438,7 @@ static const int MAXSH = 6;
 
 struct Enemy { int kind = 0; V3 p, v; float hp = 1, cd = 1, t = 0, h = 0, flash = 0, weave = 0, hide = 0; int tgt = 0, state = 0, side = 0; bool dead = false, capDead = false; };
 struct Ball { V3 p, v; float life = 6, spin = 0; bool dead = false; };
-struct Bolt { V3 a, b; float t, max; Col c; };
+struct Bolt { V3 a, b; float t, max; Col c; int owner; int sx, sy; };
 struct Frag { V3 p, v, d; float life, max; Col c; };
 struct Flash { V3 p; float life, max, size; Col c; bool ring; };
 struct Catwalk { float z, y0, y1; };
@@ -457,7 +457,8 @@ struct Player {
     V3 pos, fwd = V3(0, 0, 1), up = V3(0, 1, 0); float speed = 110, thr = 0;   // open-space flight
     SDL_Rect vp = { 0, 0, 0, 0 }; Cam cam;
 };
-struct Opts { int res = 0; bool glow = true, shake = true; int sfx = 8, mus = 6; int best = 0, bestWave = 0; };
+struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5; int best = 0, bestWave = 0; };
+static float turnMul();
 
 struct Game {
     SDL_Window* win = nullptr; SDL_Renderer* ren = nullptr; SDL_Texture* target = nullptr;
@@ -480,7 +481,7 @@ struct Game {
 // ---------------------------------------------------------------- config
 static void saveCfg() {
     FILE* f = fopen(G.cfgPath.c_str(), "w"); if (!f) return;
-    fprintf(f, "res=%d\nglow=%d\nshake=%d\nsfx=%d\nmusic=%d\nbest=%d\nbest_wave=%d\n", G.opt.res, G.opt.glow, G.opt.shake, G.opt.sfx, G.opt.mus, G.opt.best, G.opt.bestWave);
+    fprintf(f, "res=%d\nglow=%d\nshake=%d\nsfx=%d\nmusic=%d\ninvert=%d\nturn=%d\nbest=%d\nbest_wave=%d\n", G.opt.res, G.opt.glow, G.opt.shake, G.opt.sfx, G.opt.mus, G.opt.invert, G.opt.turn, G.opt.best, G.opt.bestWave);
     fclose(f);
 }
 static void loadCfg() {
@@ -490,10 +491,12 @@ static void loadCfg() {
         std::string s = k;
         if (s == "res") G.opt.res = (int)clampf((float)v, 0, 4); else if (s == "glow") G.opt.glow = v != 0; else if (s == "shake") G.opt.shake = v != 0;
         else if (s == "sfx") G.opt.sfx = (int)clampf((float)v, 0, 10); else if (s == "music") G.opt.mus = (int)clampf((float)v, 0, 10);
+        else if (s == "invert") G.opt.invert = v != 0; else if (s == "turn") G.opt.turn = (int)clampf((float)v, 1, 10);
         else if (s == "best") G.opt.best = (int)v; else if (s == "best_wave") G.opt.bestWave = (int)v;
     }
     fclose(f);
 }
+static float turnMul() { return 0.5f + 0.1f * G.opt.turn; }   // 1..10, 5 = normal
 static void applyAudioVol() { AU.sfxVol = G.opt.sfx / 10.f; AU.musVol = G.opt.mus / 10.f * 0.85f; }
 static void setupTarget() {
     if (G.target) { SDL_DestroyTexture(G.target); G.target = nullptr; }
@@ -657,10 +660,8 @@ static void hitPlayer(Player& p, const char* why) {
     }
 }
 static void playerFire(Player& p) {
-    p.fireCd = 0.13f; p.gun ^= 1;
+    p.fireCd = 0.16f; p.gun ^= 1;
     Cam& c = p.cam; V3 ray = c.ray(crossOff(p));
-    float sd = p.gun ? 1.f : -1.f;
-    V3 g1 = c.p + c.r * (2.2f * sd) + c.u * -1.3f + c.f * 1.0f, g2 = c.p + c.r * (2.2f * sd) + c.u * 1.0f + c.f * 1.0f;
     // hitscan: nearest target sphere along the ray
     float bestT = 1400; int type = 0, idx = -1;
     auto test = [&](V3 cen, float rad, int ty, int i) {
@@ -676,7 +677,14 @@ static void playerFire(Player& p) {
     for (int i = 0; i < (int)G.balls.size(); i++) if (!G.balls[i].dead) test(G.balls[i].p, 5.0f, 2, i);
     if (G.phase == PH_TRENCH && !G.portHit) { V3 pp = portPos(); if (pp.z - c.p.z < 650) test(pp, 9.0f, 3, 0); }
     V3 end = c.p + ray * bestT;
-    G.bolts.push_back({ g1, end, 0.14f, 0.14f, p.col }); G.bolts.push_back({ g2, end, 0.14f, 0.14f, p.col });
+    // four wing cannons: from your own cockpit they come in from the screen edges (like the arcade cabinet);
+    // wingmates see them leave your four wingtips
+    V3 rt, up; basisFrom(isSpace() ? p.fwd : V3(0, 0, 1), 0, rt, up); if (isSpace()) { rt = norm3(cross3(p.up, p.fwd)); up = cross3(p.fwd, rt); }
+    V3 ship = ppos(p), fw = isSpace() ? p.fwd : V3(0, 0, 1);
+    for (int sx = -1; sx <= 1; sx += 2) for (int sy = -1; sy <= 1; sy += 2) {
+        V3 tip = ship + rt * (sx * 0.78f * S_PLAYER) + up * (sy * 0.25f * S_PLAYER) + fw * (0.3f * S_PLAYER);
+        G.bolts.push_back({ tip, end, 0.16f, 0.16f, Col(255, 70, 60), p.idx, sx, sy });
+    }
     AU.play(SND_LASER, 0.42f, clampf((p.vp.x + p.vp.w * 0.5f) / G.W * 2 - 1, -0.5f, 0.5f), R.range(0.95f, 1.05f), 40);
     if (idx < 0) return;
     if (type == 1) {
@@ -828,26 +836,28 @@ static void updatePlayer(Player& p, float dt) {
         if (d) {
             V2 mv = d->mv; if (p.invert) mv.y = -mv.y;
             if (d->id == -1) {   // keyboard: relative; mouse: absolute inside this view
-                p.aim = p.aim + V2(mv.x, -mv.y) * (2.4f * dt);
+                p.aim = p.aim + V2(mv.x, -mv.y) * (2.4f * turnMul() * dt);
                 if (len(mv) < 0.1f) p.aim = p.aim * std::pow(0.25f, dt);
                 if (d->mouseMoved) { V2 c(p.vp.x + p.vp.w * 0.5f, p.vp.y + p.vp.h * 0.5f); V2 o = d->mouse - c; p.aim = V2(o.x / crossRange(p, true), -o.y / crossRange(p, false)); }
                 fire = d->b[B_A] || d->ml; p.thr = d->tr - d->tl;
             } else if (p.gyro && d->hasGyro) {
                 p.aim = p.aim + V2(-d->gyro.y * 1.15f, d->gyro.x * 1.15f * (p.invert ? -1 : 1)) * dt + V2(mv.x, -mv.y) * (1.8f * dt);
                 if (pr(*d, B_LS) || pr(*d, B_Y)) p.aim = V2();
-                fire = d->b[B_A] || d->b[B_RB]; p.thr = d->tr - d->tl;
+                fire = d->b[B_A] || d->b[B_B] || d->b[B_RB]; p.thr = d->tr - d->tl;
             } else {
                 V2 want(mv.x, -mv.y); p.aim = p.aim + (want - p.aim) * std::min(1.f, dt * 14);
-                fire = d->b[B_A] || d->b[B_RB]; p.thr = d->tr - d->tl;
+                fire = d->b[B_A] || d->b[B_B] || d->b[B_RB]; p.thr = d->tr - d->tl;
             }
         }
     }
+    if (getenv("VS_AUTOFIRE")) fire = true;   // test switch
     p.aim.x = clampf(p.aim.x, -1, 1); p.aim.y = clampf(p.aim.y, -1, 1);
     if (G.phase == PH_SPACE) {
         // flight: the sight is where you want to go - the ship turns toward it; triggers throttle up / down
         p.speed = clampf(p.speed + p.thr * 120 * dt, 35, 250);
         V3 right = norm3(cross3(p.up, p.fwd));
-        p.fwd = norm3(p.fwd + right * (p.aim.x * 1.55f * dt) + p.up * (p.aim.y * 1.3f * dt));
+        float tm = turnMul();
+        p.fwd = norm3(p.fwd + right * (p.aim.x * 1.55f * tm * dt) + p.up * (p.aim.y * 1.3f * tm * dt));
         V3 up = norm3(p.up - p.fwd * dot3(p.up, p.fwd)), lv = V3(0, 1, 0) - p.fwd * dot3(V3(0, 1, 0), p.fwd);
         if (len3(lv) > 0.15f) up = norm3(up + norm3(lv) * (0.9f * dt));   // gently roll back level
         p.up = up;
@@ -855,7 +865,7 @@ static void updatePlayer(Player& p, float dt) {
         V3 ds = p.pos - G.stC; float dl = len3(ds);
         if (dl < G.stR * 1.01f) { p.pos = G.stC + ds * (G.stR * 1.03f / dl); p.fwd = norm3(p.fwd + ds * (1 / dl)); hitPlayer(p, "station"); }
     } else if (G.phase != PH_ESCAPE && G.phase != PH_TALLY) {
-        float ms = G.phase == PH_TRENCH ? 42 : 95;
+        float ms = (G.phase == PH_TRENCH ? 42 : 95) * turnMul();
         p.x += p.aim.x * ms * dt; p.y += p.aim.y * ms * dt * 0.85f;
     }
     if (!isSpace()) clampPlayer(p, dt);
@@ -1050,8 +1060,23 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
     }
     for (auto& b : G.balls) drawBall(cv, cam, b);
     for (auto& b : G.bolts) {
-        float fr = 1 - b.t / b.max; V3 d = b.b - b.a; V3 a = b.a + d * fr, e = b.a + d * std::min(1.f, fr + 0.35f);
-        line3(cv, cam, a, e, 2.4f, b.c, 1.4f); line3(cv, cam, a, e, 0.9f, C_WHITE, 0);
+        float fr = 1 - b.t / b.max;
+        if (me && b.owner == me->idx) {
+            // own guns: a thick red streak from the screen edge that thins as it converges on the sight
+            V2 st; float zt;
+            V2 sc(cam.vp.x + cam.vp.w * (0.5f + 0.5f * b.sx * 0.98f), cam.vp.y + cam.vp.h * (0.5f - 0.5f * b.sy * 0.82f));
+            if (!cam.proj(b.b, st, zt)) st = V2(cam.vp.x + cam.vp.w * 0.5f, cam.vp.y + cam.vp.h * 0.5f) + crossOff(*me);
+            float t0 = fr * fr * 0.85f, t1 = std::min(1.f, t0 + 0.42f * (1 - fr) + 0.08f);
+            V2 s0 = sc + (st - sc) * t0, s1 = sc + (st - sc) * t1;
+            float w0 = std::max(2.f, 14.f * (1 - t0)) * LW, w1 = std::max(1.f, 14.f * (1 - t1)) * LW;
+            V2 dd = norm(s1 - s0), nn = perp(dd);
+            V2 q[4] = { s0 + nn * (w0 * 0.5f), s1 + nn * (w1 * 0.5f), s1 - nn * (w1 * 0.5f), s0 - nn * (w0 * 0.5f) };
+            cv.quad(cv.addV, q[0], q[1], q[2], q[3], b.c, b.c, b.c, b.c);
+            cv.line(s0, s1, std::max(1.f, w1 * 0.35f), Col(255, 230, 220), 0.9f);
+        } else {
+            V3 d = b.b - b.a; V3 a = b.a + d * fr, e = b.a + d * std::min(1.f, fr + 0.3f);
+            line3(cv, cam, a, e, 2.2f, b.c, 1.3f); line3(cv, cam, a, e, 0.8f, C_WHITE, 0);
+        }
     }
     for (auto& f : G.frags) { float fr = f.life / f.max; line3(cv, cam, f.p - f.d, f.p + f.d, 1.3f, withA(f.c, std::min(1.f, fr * 1.8f)), 0.6f); }
     for (auto& f : G.flashes) {
@@ -1304,7 +1329,7 @@ static void menuList(Canvas& cv, const char** items, int n, int sel, float cx, f
 static void drawPanel(Canvas& cv, float x, float y, float w, float h, Col edge, float u) { cv.rect(x, y, w, h, Col(6, 10, 18, 225)); cv.rectLine(x, y, w, h, 1.3f * u, edge, 0.5f); }
 static void joinPlayer(int devId) {
     for (int i = 0; i < 4; i++) if (!G.pl[i].joined) {
-        Player& p = G.pl[i]; p = Player(); p.joined = true; p.dev = devId; p.idx = i; p.col = PCOL[i];
+        Player& p = G.pl[i]; p = Player(); p.joined = true; p.dev = devId; p.idx = i; p.col = PCOL[i]; p.invert = G.opt.invert;
         Dev* d = devById(devId); if (d && d->gc) SDL_GameControllerSetPlayerIndex(d->gc, i);
         AU.play(SND_UI_OK, 0.7f); printf("lobby: P%d joined (%s)\n", i + 1, devId == -1 ? "keyboard" : d ? d->name.c_str() : "test");
         return;
@@ -1319,7 +1344,7 @@ static void updateMenus(float dt) {
         break;
     case ST_HELP: if (m.a || m.b || m.start) { G.state = ST_TITLE; G.menuSel = 1; AU.play(SND_UI, 0.6f); } break;
     case ST_OPTIONS: {
-        if (m.y) { G.menuSel = (G.menuSel + m.y + 6) % 6; AU.play(SND_UI, 0.6f); }
+        if (m.y) { G.menuSel = (G.menuSel + m.y + 8) % 8; AU.play(SND_UI, 0.6f); }
         int dx = m.x + (m.a ? 1 : 0);
         if (dx) {
             AU.play(SND_UI, 0.6f);
@@ -1329,7 +1354,9 @@ static void updateMenus(float dt) {
             case 2: G.opt.shake = !G.opt.shake; break;
             case 3: G.opt.sfx = (int)clampf((float)(G.opt.sfx + (m.a ? 0 : dx)), 0, 10); break;
             case 4: G.opt.mus = (int)clampf((float)(G.opt.mus + (m.a ? 0 : dx)), 0, 10); break;
-            case 5: if (m.a) { saveCfg(); G.state = ST_TITLE; G.menuSel = 2; } break;
+            case 5: G.opt.invert = !G.opt.invert; for (auto& q : G.pl) q.invert = G.opt.invert; break;
+            case 6: G.opt.turn = (int)clampf((float)(G.opt.turn + (m.a ? 0 : dx)), 1, 10); break;
+            case 7: if (m.a) { saveCfg(); G.state = ST_TITLE; G.menuSel = 2; } break;
             }
             applyAudioVol();
         }
@@ -1382,8 +1409,8 @@ static void renderMenus(Canvas& cv) {
             "MISS THE PORT AND THE SQUADRON GOES AROUND FOR ANOTHER RUN.",
             "",
             "LEFT STICK - POINT THE SIGHT WHERE YOU WANT TO GO, THE SHIP TURNS TO IT",
-            "A OR RB - FIRE (HOLD)    RT / LT - THROTTLE UP / DOWN    ARROWS POINT TO TARGETS",
-            "LOBBY: X INVERT Y   Y GYRO AIM (SWITCH PRO PADS)   LEFT/RIGHT START LEVEL",
+            "A / B OR RB - FIRE (HOLD)    RT / LT - THROTTLE    ARROWS POINT TO TARGETS",
+            "OPTIONS: INVERT STICK, TURN SPEED.  LOBBY: X INVERT   Y GYRO   LEFT/RIGHT LEVEL",
             "GYRO: TILT TO AIM, L3 OR Y RECENTERS.   START - PAUSE",
             "KEYBOARD: ARROWS / WASD OR MOUSE, SPACE OR CLICK FIRE, E / Q THROTTLE, ESC",
         };
@@ -1395,11 +1422,12 @@ static void renderMenus(Canvas& cv) {
     }
     case ST_OPTIONS: {
         FONT.draw(cv, "OPTIONS", V2(cx, 110 * u), 50 * u, C_PORT, 1, 0, 1.1f);
-        char l[6][64];
+        char l[8][64];
         snprintf(l[0], 64, "RESOLUTION  %s", RESNAMES[G.opt.res]); snprintf(l[1], 64, "GLOW  %s", G.opt.glow ? "ON" : "OFF");
-        snprintf(l[2], 64, "SCREEN SHAKE  %s", G.opt.shake ? "ON" : "OFF"); snprintf(l[3], 64, "SOUND  %d", G.opt.sfx); snprintf(l[4], 64, "MUSIC  %d", G.opt.mus); snprintf(l[5], 64, "BACK");
-        const char* items[6] = { l[0], l[1], l[2], l[3], l[4], l[5] };
-        menuList(cv, items, 6, G.menuSel, cx, G.H * 0.3f, 30 * u, 64 * u);
+        snprintf(l[2], 64, "SCREEN SHAKE  %s", G.opt.shake ? "ON" : "OFF"); snprintf(l[3], 64, "SOUND  %d", G.opt.sfx); snprintf(l[4], 64, "MUSIC  %d", G.opt.mus);
+        snprintf(l[5], 64, "INVERT STICK  %s", G.opt.invert ? "ON - PULL BACK TO CLIMB" : "OFF"); snprintf(l[6], 64, "TURN SPEED  %d", G.opt.turn); snprintf(l[7], 64, "BACK");
+        const char* items[8] = { l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7] };
+        menuList(cv, items, 8, G.menuSel, cx, G.H * 0.24f, 30 * u, 60 * u);
         char info[120]; snprintf(info, sizeof info, "DISPLAY %d X %d   RENDERING %d X %d", G.outW, G.outH, G.W, G.H);
         FONT.draw(cv, info, V2(cx, G.H - 100 * u), 15 * u, withA(C_DIM, 0.9f), 1);
         FONT.draw(cv, "LEFT / RIGHT TO CHANGE.  PUT MUSIC.WAV IN THE GAME FOLDER FOR YOUR OWN SOUNDTRACK", V2(cx, G.H - 60 * u), 15 * u, withA(C_DIM, 0.9f), 1);
@@ -1693,7 +1721,7 @@ if a.preview:
         for e in E: ax.plot(V[e, i], V[e, j], color='cyan', lw=0.6)
         ax.set_xlim(-1.05, 1.05); ax.set_ylim(-1.05, 1.05); ax.set_aspect('equal')
     plt.savefig(a.preview, dpi=60)
-===== FILE: VectorStrike.sh =====
+===== FILE: pkg/VectorStrike.sh =====
 #!/bin/bash
 # Vector Strike - Batocera port launcher
 DIR="$(dirname "$(readlink -f "$0")")/vectorstrike"
@@ -1715,9 +1743,30 @@ fi
 rc=$?
 echo "=== exit code $rc ===" >> "$LOG"
 exit $rc
-===== FILE: VectorStrike.sh.keys =====
+===== FILE: pkg/VectorStrike.sh.keys =====
 {
     "actions_player1": [
         { "trigger": ["hotkey", "start"], "type": "key", "target": ["KEY_LEFTALT", "KEY_F4"] }
     ]
 }
+===== FILE: README.md =====
+# Vector Strike
+
+1983-style wireframe space assault for 1-4 players, split screen, for Chris's Batocera box (C++17 / SDL2).
+Open-space dogfight with flight controls -> surface towers -> trench run -> exhaust port.
+
+- `src/` game (main.cpp, gfx.h vector renderer, audio.h synth)
+- `modelpack/` wireframes the game loads at run time (made from `assets_src/*.glb` with `tools/glb2vsm.py`)
+- `pkg/` Batocera launcher, keys file, menu images
+- `HANDOVER.md` full notes: design, controls, test switches, deploy
+
+## Build
+```
+pip install ziglang --break-system-packages; apt-get install libsdl2-dev
+mkdir -p inc/SDL2 build && cp /usr/include/x86_64-linux-gnu/SDL2/_real_SDL_config.h inc/SDL2/
+./build.sh        # -> build/vectorstrike.x86_64 (glibc 2.28 target, links system libSDL2)
+```
+Test: `VS_HOME=. VS_STATE=game VS_PLAYERS=4 VS_BOTS=1 VS_ADVANCE=600 SDL_VIDEODRIVER=dummy VS_MUTE=1 build/vectorstrike.x86_64`
+
+## Deploy
+Copy `build/vectorstrike.x86_64` (+ `modelpack/`) to `/userdata/roms/ports/vectorstrike/` and `pkg/VectorStrike.sh*` to `/userdata/roms/ports/`.
