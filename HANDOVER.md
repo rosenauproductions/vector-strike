@@ -1,0 +1,43 @@
+# Vector Strike — handover (24 Oct 2026, v2)
+
+Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
+
+## v2 (24 Oct ~17:20): Chris's models + open-space flight
+- **Model pack**: `roms/ports/vectorstrike/modelpack/player.vsm` (X-wing), `enemy.vsm` (TIE), `station.vsm` (Death Star), made from Chris's own Sketchfab GLBs with `tools/glb2vsm.py` (quadric decimation per part → feature edges > 30°; the Death Star's smooth hull becomes lat/long rings + equatorial trench, dish edges from the mesh; laser effect pieces dropped). The game loads them at start (`model: loaded ...` log lines) and falls back to its built-in ships if the folder is missing (`VS_NOPACK=1` forces built-in). Edges are sorted longest-first for level of detail. The binary itself has no Star Wars content; the title stays "Vector Strike" (Claude declined renaming it to Star Wars even though Chris said it's personal use).
+  - Converter orientation matrices: TIE `[[-0.941,-0.322,-0.101],[-0.296,0.932,-0.211],[-0.162,0.169,0.972]]`, X-wing `[[0.9246,-0.0745,0.3736],[-0.06,-0.997,-0.05],[-0.3758,-0.0243,0.9266]]` (faces 2600, max 1300), Death Star `[[-1,0,0],[0,1,0],[0,0,-1]] --sphere "main hull" --skip laser`.
+- **Flight**: the space stage is open 3D. The sight is where you want to go; the ship turns toward it (yaw 1.55 rad/s, pitch 1.3 at full deflection) and slowly rolls level. RT/LT (keyboard E/Q) throttle 35–250, held speed. Fire moved to A/RB only. On the surface and in the trench, the squad's average throttle speeds the run ×0.75–1.4.
+- **Open world**: station at (0,0,7500), radius 1400. Interceptors spawn ~1000 out round the squad, chase a lead point with weave, break off under 120, extend 2–3 s, re-engage; they fire led fireballs when facing you. After the last kill: "ATTACK THE BATTLE STATION", fly within 700 of the surface → surface/trench rails. Escape cuts back to open space to watch the station break apart (its own edges fly out).
+- **HUD**: red brackets on on-screen interceptors, red edge arrows for the nearest 6 off-screen, yellow arrow + distance for the station (blinks when it's the objective), speed gauge on the left.
+- Fireball hits use closest-approach over each step (no tunnelling at speed).
+- Deployed md5 `7a84d2fdf222a20bcc655f9e36c5592e`; previous build kept as `vectorstrike_prev_fe89be13.x86_64`. Soak: 1, 2 and 4 bots, 15 min each, no crashes.
+
+## Status
+- **Deployed to ARCADE-21 on 24 Oct ~16:40** (not yet launched on the box). Share mounted on the Mac as `/Volumes/share-1/roms` (device shell `~/mnt/roms`).
+  - `roms/ports/vectorstrike/vectorstrike.x86_64` md5 `fe89be13fb423dbd160493b7460542ed`
+  - `roms/ports/VectorStrike.sh` (Belt Command launcher pattern: chmod, ld-linux fallback, log) + `VectorStrike.sh.keys` (Hotkey+Start → Alt+F4 = quit)
+  - `roms/ports/images/VectorStrike-image.png / -marquee.png / -thumb.png`
+  - gamelist.xml entry added (backup `gamelist.xml.pre_vectorstrike`). ES may need "Update games lists" or a restart.
+- Cloud tests: bot soak 4 players × 25 min (two seeds) reached wave 12, no crashes; xvfb screenshots of every stage.
+- Built with zig c++ `-target x86_64-linux-gnu.2.28`, links system libSDL2 (needs SDL ≥ 2.0.18 for SDL_RenderGeometry; gyro uses the 2.0.14 sensor API).
+- Source: `claude/vector-strike-source-bundle.txt` (files split by `===== FILE: path =====`). Build: `build.sh` (copy `/usr/include/x86_64-linux-gnu/SDL2/_real_SDL_config.h` into `inc/SDL2/`).
+
+## Design
+- Every wave: **Space** (shoot N interceptors; N = (5+2·wave) × (1+0.45 per extra player); they fire fireballs) → **Surface** from wave 2 (tower tops to shoot, towers to fly over) → **Trench** (wall turrets; catwalks from wave 2, double catwalks wave 5+; exhaust port at the end). Port hit → climb out → Citadel explodes → bonus tally (port hitter 25 000, others 10 000, 2 000 per shield, +1 shield). Missing the port = "go around", trench restarts.
+- Shoot the orange fireballs (+50). Fighter 1000 (2 hits from wave 4), tower top 250, turret 300, port 5000.
+- 6 shields. A player at 0 is out until the next stage if anyone is still flying; all down = game over. Start level EASY/MEDIUM/HARD (wave 1/3/5, start bonus 0/40k/100k). High score + best wave saved in `vectorstrike.cfg`.
+- Split screen: 1 full, 2 top/bottom (narrower FOV), 3 = quadrants + squadron board, 4 quadrants. Players fly staggered 12 units apart so wingmen are visible ahead. Resolution option Auto/720p/1080p/1440p/4K.
+- Audio all synthesized; a `music.wav` in the game folder replaces the built-in 120 bpm loop (for Chris's AI music).
+
+## Controls
+Left stick moves the sight and steers (sight position = yoke position). Fire: A, RB or RT (hold). Lobby: A join, B leave, X invert Y, Y gyro aim (pads that report a gyro), Left/Right start level, Start launch. Gyro: tilt to aim, L3 or Y recentres (signs are a guess, untested). Start pause, Back+Start title. Keyboard: arrows/WASD or mouse, Space/click fire, I invert, Esc.
+
+## Logs
+`/userdata/system/logs/vectorstrike.log`: `pad:` lines (name, GUID, type, gyro yes/no), `renderer:`, `video:`, `game:` phase lines, hits, `fps:` every 30 s.
+
+## Test switches
+`VS_STATE=title|help|options|lobby|game|icon|logo`, `VS_PLAYERS`, `VS_BOTS=1`, `VS_WAVE`, `VS_PHASE=surface|trench|escape|tally`, `VS_ADVANCE=secs`, `VS_SEED`, `VS_SHOT=frame` + `VS_SHOT_PATH`, `VS_FRAMES` (bench), `VS_WINDOW=WxH`, `VS_RES`, `VS_MUTE`, `VS_HOME`.
+
+## Open / next
+- First box run: renderer, fps at 4K with 4 players, Switch Pro mapping and gyro direction.
+- Balance after Chris plays (bots are weak in single player; they die to fireballs).
+- No Wii remote support yet (wiidirect + IR pointer would suit the sight well).

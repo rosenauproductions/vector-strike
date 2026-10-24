@@ -1,0 +1,4 @@
+build/
+inc/
+*.bmp
+__pycache__/
