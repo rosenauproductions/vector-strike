@@ -119,6 +119,7 @@ static void basisFrom(V3 fw, float roll, V3& rt, V3& up) {
     fw = norm3(fw); rt = cross3(V3(0, 1, 0), fw); if (len3(rt) < 1e-3f) rt = V3(1, 0, 0); rt = norm3(rt); up = cross3(fw, rt);
     if (roll != 0) { float c = std::cos(roll), s = std::sin(roll); V3 r2 = rt * c - up * s, u2 = up * c + rt * s; rt = r2; up = u2; }
 }
+static bool SPHERE_CULL = false;   // set while drawing the station: hide lines on the far side of the globe
 static void drawModelRU(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 fw, V3 rt, V3 up, float s, Col c, float w, float glow) {
     size_t ne = m.e.size();
     if (m.sorted) {   // level of detail: the longest edges first, fewer when small on screen
@@ -127,7 +128,12 @@ static void drawModelRU(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 f
     }
     for (size_t i = 0; i + 1 < ne; i += 2) {
         V3 a = m.v[m.e[i]], b = m.v[m.e[i + 1]];
-        line3(cv, cam, pos + rt * (a.x * s) + up * (a.y * s) + fw * (a.z * s), pos + rt * (b.x * s) + up * (b.y * s) + fw * (b.z * s), w, c, glow);
+        V3 wa = pos + rt * (a.x * s) + up * (a.y * s) + fw * (a.z * s), wb = pos + rt * (b.x * s) + up * (b.y * s) + fw * (b.z * s);
+        if (SPHERE_CULL) {
+            V3 mid = (wa + wb) * 0.5f, nrm = mid - pos; float nl = len3(nrm);
+            if (nl > s * 0.6f && dot3(nrm, cam.p - mid) < -0.05f * nl * len3(cam.p - mid)) continue;
+        }
+        line3(cv, cam, wa, wb, w, c, glow);
     }
 }
 static void drawModelUp(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 fw, V3 upv, float roll, float s, Col c, float w = 1.3f, float glow = 1) {
@@ -275,7 +281,8 @@ static void fireBall(V3 from, int tgt, float spdMul = 1) {
         b.v = rel * (1 / tz) + V3(0, 0, G.speed); b.life = tz + 2.5f;   // reaches the player's slot as the squad flies on
     }
     G.balls.push_back(b);
-    AU.play(SND_BALL, 0.35f, clampf(from.x / 120, -0.6f, 0.6f), R.range(0.9f, 1.1f), 60);
+    if (isSpace()) { float d = len3(from - squadCenter()); AU.play(SND_TIELASER, clampf(1.1f - d / 900, 0.15f, 0.8f), R.range(-0.5f, 0.5f), R.range(0.92f, 1.08f), 50); }
+    else AU.play(SND_BALL, 0.35f, clampf(from.x / 120, -0.6f, 0.6f), R.range(0.9f, 1.1f), 60);
 }
 
 // ---------------------------------------------------------------- phases
@@ -461,7 +468,7 @@ static void updateFighters(float dt) {
             V3 aimp = tp + tv * 0.5f + V3(std::sin(e.t * 1.3f + e.weave) * 35, std::cos(e.t * 1.1f + e.weave) * 25, std::sin(e.t * 0.8f + e.weave) * 35);
             V3 want = norm3(aimp - e.p);
             cur = norm3(cur + (want - cur) * std::min(1.f, dt * turn));
-            if (d < 120) { e.state = 1; e.hide = R.range(1.8f, 3.2f); cur = norm3(cur + rndDir() * 0.9f); }
+            if (d < 120) { e.state = 1; e.hide = R.range(1.8f, 3.2f); cur = norm3(cur + rndDir() * 0.9f); AU.play(SND_TIEFLY, 0.85f, R.range(-0.4f, 0.4f), R.range(0.9f, 1.12f), 250); }
             if (e.cd <= 0 && d < 780 && d > 90 && dot3(cur, norm3(tp - e.p)) > 0.82f) { e.cd = std::max(0.9f, 2.6f - 0.13f * G.wave) * R.range(0.8f, 1.2f); fireBall(e.p + cur * 7, e.tgt); }
         } else {              // extend away, then come round again
             e.hide -= dt; if (e.hide <= 0) { e.state = 0; e.tgt = randomAlive(); }
@@ -697,7 +704,9 @@ static void drawStars3(Canvas& cv, const Cam& cam, V3 vel) {
 static void drawCitadel(Canvas& cv, const Cam& cam, V3 at, float size, float alpha) {
     Cam far = cam; far.fogNear = 12000; far.fogFar = 22000;
     V3 fw = MS == &PK_STATION ? V3(0, 0, 1) : V3(std::sin(G.citSpin), 0, std::cos(G.citSpin));
+    SPHERE_CULL = MS == &PK_STATION;
     drawModel(cv, far, *MS, at, fw, 0, size, withA(C_CIT, alpha), 1.2f, 0.7f);
+    SPHERE_CULL = false;
 }
 static void drawSurface(Canvas& cv, const Cam& cam, float zc) {
     Col gc = withA(C_GROUND, 0.75f);
@@ -755,6 +764,50 @@ static void drawBall(Canvas& cv, const Cam& cam, const Ball& b) {
     cv.glowDisc(s, r * 1.7f, withA(C_BALL, 0.75f * fg)); cv.glowDisc(s, r * 0.7f, withA(Col(255, 240, 200), fg));
     for (int i = 0; i < 6; i++) { float a = b.spin + i * PI / 3; cv.line(s + fromAng(a) * r * 0.4f, s + fromAng(a) * r * 1.6f, std::max(1.f, 1.4f * LW), withA(Col(255, 200, 90), fg), 0.6f); }
 }
+// ---- cockpit laser cannons: four barrels poking in from the screen corners, aimed at the sight.
+// Shape: long spear barrel, a short neck, then a flash hider that flares forward like an inside-out umbrella with its sides cut flat.
+static V3 camPt(const Cam& c, V3 q) { return c.p + c.r * q.x + c.u * q.y + c.f * q.z; }
+static void cannonFrame(const Player& p, int sx, int sy, V3& base, V3& tip) {
+    const Cam& c = p.cam; float hw = c.vp.w * 0.5f / c.foc, hh = c.vp.h * 0.5f / c.foc;
+    V2 co = crossOff(p); V3 aimDir = norm3(V3(co.x / c.foc, -co.y / c.foc, 1));
+    V3 conv = aimDir * 70.f;                                    // barrels converge on the sight
+    base = V3(sx * hw * 1.32f * 1.4f, sy * hh * (sy > 0 ? 0.98f : 1.22f) * 1.4f, 1.4f);
+    tip = base + norm3(conv - base) * 1.3f;
+}
+static float cannonKick(const Player& p, int sx, int sy) {
+    float k = 0; for (auto& b : G.bolts) if (b.owner == p.idx && b.sx == sx && b.sy == sy) k = std::max(k, b.t / b.max);
+    return k;   // 1 = just fired
+}
+static void drawCannons(Canvas& cv, const Player& p) {
+    const Cam& c = p.cam; Col body = mixc(Col(150, 165, 195), p.col, 0.25f), dark = withA(body, 0.55f);
+    for (int sx = -1; sx <= 1; sx += 2) for (int sy = -1; sy <= 1; sy += 2) {
+        V3 b, t; cannonFrame(p, sx, sy, b, t);
+        float kick = cannonKick(p, sx, sy);
+        V3 A = norm3(t - b); float L = len3(t - b); V3 back = A * (-0.35f * kick * kick); b += back; t += back;
+        V3 U = norm3(cross3(V3(0, 1, 0), A)), V = cross3(A, U);   // U = sideways (gets cut), V = up
+        float r = 0.05f; const int N = 10;
+        auto ringPt = [&](float at, float rad, int i, bool cut) {
+            float a = i * 2 * PI / N; float x = std::cos(a) * rad, y = std::sin(a) * rad;
+            if (cut) x = clampf(x, -r * 1.25f, r * 1.25f);
+            return b + A * (at * L) + U * x + V * y;
+        };
+        struct Ring { float at, rad; bool cut; };
+        const Ring rings[] = { { 0.0f, r, false }, { 0.30f, r, false }, { 0.60f, r, false }, { 0.74f, r * 1.25f, false }, { 0.78f, r * 0.7f, false }, { 0.84f, r * 0.75f, true }, { 1.0f, r * 3.0f, true } };
+        const int NR = sizeof(rings) / sizeof(rings[0]);
+        for (int k = 0; k < NR; k++) for (int i = 0; i < N; i++) {
+            V3 q0 = ringPt(rings[k].at, rings[k].rad, i, rings[k].cut), q1 = ringPt(rings[k].at, rings[k].rad, (i + 1) % N, rings[k].cut);
+            line3(cv, c, camPt(c, q0), camPt(c, q1), k == NR - 1 ? 1.5f : 1.0f, k == NR - 1 ? body : dark, 0.3f);
+        }
+        for (int i = 0; i < N; i += (i % 2 ? 1 : 1)) {
+            for (int k = 0; k + 1 < NR; k++) {
+                if (k < 3 && i % 2) continue;   // fewer lines along the plain barrel
+                V3 q0 = ringPt(rings[k].at, rings[k].rad, i, rings[k].cut), q1 = ringPt(rings[k + 1].at, rings[k + 1].rad, i, rings[k + 1].cut);
+                line3(cv, c, camPt(c, q0), camPt(c, q1), 1.0f, k >= NR - 2 ? body : dark, 0.3f);
+            }
+        }
+        if (kick > 0.55f) { V2 s; float z; if (c.proj(camPt(c, t + A * 0.15f), s, z)) { cv.glowDisc(s, 46 * LW * kick, Col(255, 90, 70, (int)(230 * kick))); cv.glowDisc(s, 16 * LW * kick, Col(255, 235, 220, (int)(255 * kick))); } }
+    }
+}
 static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
     bool space = G.phase == PH_SPACE || (G.phase == PH_ESCAPE && G.citBoom) || G.phase == PH_TALLY;
     drawSky(cv, cam, !space);
@@ -793,9 +846,9 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
         float fr = 1 - b.t / b.max;
         if (me && b.owner == me->idx) {
             // own guns: a thick red streak from the screen edge that thins as it converges on the sight
-            V2 st; float zt;
-            V2 sc(cam.vp.x + cam.vp.w * (0.5f + 0.5f * b.sx * 0.98f), cam.vp.y + cam.vp.h * (0.5f - 0.5f * b.sy * 0.82f));
-            if (!cam.proj(b.b, st, zt)) st = V2(cam.vp.x + cam.vp.w * 0.5f, cam.vp.y + cam.vp.h * 0.5f) + crossOff(*me);
+            V3 cb, ct; cannonFrame(*me, b.sx, b.sy, cb, ct); V2 sc; float zc;
+            if (!cam.proj(camPt(cam, ct), sc, zc)) continue;
+            V2 st = V2(cam.vp.x + cam.vp.w * 0.5f, cam.vp.y + cam.vp.h * 0.5f) + crossOff(*me);   // always onto the sight
             float t0 = fr * fr * 0.85f, t1 = std::min(1.f, t0 + 0.42f * (1 - fr) + 0.08f);
             V2 s0 = sc + (st - sc) * t0, s1 = sc + (st - sc) * t1;
             float w0 = std::max(2.f, 14.f * (1 - t0)) * LW, w1 = std::max(1.f, 14.f * (1 - t1)) * LW;
@@ -937,7 +990,7 @@ static void renderGame(Canvas& cv) {
         setupCam(*p);
         LW = std::max(0.9f, p->vp.h / 1080.f * (p->vp.h < G.H * 0.75f ? 1.5f : 1.0f) * 1.6f);
         SDL_RenderSetClipRect(G.ren, &p->vp);
-        if (!p->down) drawScene(cv, p->cam, p);
+        if (!p->down) { drawScene(cv, p->cam, p); if (G.phase != PH_TALLY && !(G.phase == PH_ESCAPE && G.citBoom)) { drawCannons(cv, *p); cv.flush(G.ren); } }
         drawHud(cv, *p); cv.flush(G.ren);
     }
     if (views.size() == 3) {   // fourth quadrant: squad board
@@ -1160,7 +1213,7 @@ static void renderMenus(Canvas& cv) {
         menuList(cv, items, 8, G.menuSel, cx, G.H * 0.24f, 30 * u, 60 * u);
         char info[120]; snprintf(info, sizeof info, "DISPLAY %d X %d   RENDERING %d X %d", G.outW, G.outH, G.W, G.H);
         FONT.draw(cv, info, V2(cx, G.H - 100 * u), 15 * u, withA(C_DIM, 0.9f), 1);
-        FONT.draw(cv, "LEFT / RIGHT TO CHANGE.  PUT MUSIC.WAV IN THE GAME FOLDER FOR YOUR OWN SOUNDTRACK", V2(cx, G.H - 60 * u), 15 * u, withA(C_DIM, 0.9f), 1);
+        FONT.draw(cv, "LEFT / RIGHT TO CHANGE.  YOUR OWN MUSIC.WAV AND SOUNDS/*.WAV IN THE GAME FOLDER REPLACE THE BUILT-IN AUDIO", V2(cx, G.H - 60 * u), 15 * u, withA(C_DIM, 0.9f), 1);
         break;
     }
     case ST_LOBBY: {
@@ -1326,6 +1379,7 @@ int main(int argc, char** argv) {
     SDL_RendererInfo ri; SDL_GetRendererInfo(G.ren, &ri); printf("renderer: %s\n", ri.name);
     SDL_ShowCursor(SDL_DISABLE);
     setupTarget();
+    if (getenv("VS_EXPORT_SOUNDS")) { AU.build(); AU.exportWavs(getenv("VS_EXPORT_SOUNDS")); return 0; }
     if (!getenv("VS_MUTE")) AU.open(G.dir);
     applyAudioVol();
     Dev kb; kb.id = -1; kb.name = "KEYBOARD"; G.devs.push_back(kb);

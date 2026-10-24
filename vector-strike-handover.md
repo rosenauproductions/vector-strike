@@ -2,6 +2,12 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v4 (24 Oct ~17:25)
+- **Cockpit laser cannons**: four wireframe cannons poke in from the screen corners (long barrel, neck, flared flash hider cut flat on the sides), aimed at the sight; they kick back and flash when they fire. Your own laser streaks now run from each cannon tip exactly onto the crosshair (screen space). Code: `cannonFrame` / `drawCannons` in main.cpp.
+- **Sounds**: Claude declined to fetch film sound effects (Lucasfilm audio) and synthesized sound-alikes instead: ringing falling-chirp laser, enemy fly-by howl (detuned buzz through a sweeping resonance with a doppler drop, plays when an interceptor breaks off past you), enemy laser. **Sound pack**: any `<game>/sounds/<name>.wav` replaces a built-in sound (names: laser, boom_small, boom_big, fireball, fireball_hit, shield_hit, alarm, ui, ui_ok, port_hit, wave_clear, game_over, player_down, banner, tower_hit, enemy_flyby, enemy_laser). Empty `sounds/` folder created on the box. `VS_EXPORT_SOUNDS=dir` writes all built-ins as wavs.
+- **Death Star detail**: station.vsm regenerated with 12 latitude rings, 24 meridians, trench outer walls, ~400 surface plates/seams (dish area kept clear), dish at 1400 faces; 2800 edges. The game hides lines on the far side of the globe (`SPHERE_CULL`). Converter: `--greeble 420 --faces 1400 --angle 30 --max 2800`.
+- Deployed md5 `89c566e2b18523b72c43c5d834f2bb0b`, station.vsm `d0d9ecf8…`.
+
 ## v3 (24 Oct ~17:10)
 - Options: INVERT STICK (default for every player; lobby X still toggles per player) and TURN SPEED 1-10 (5 = normal; scales flight turn rates, rail strafe speed, keyboard aim). Saved as `invert=` / `turn=` in vectorstrike.cfg.
 - Four wing lasers fire together every 0.16 s. In your own view they streak in from the four screen corners (screen space) and converge on the sight like the arcade cabinet; wingmates see them leave your four wingtips in 3D.

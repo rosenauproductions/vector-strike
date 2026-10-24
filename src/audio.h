@@ -9,7 +9,10 @@
 #include "gfx.h"
 
 enum Snd { SND_LASER, SND_BOOM_S, SND_BOOM_L, SND_BALL, SND_BALLHIT, SND_SHIELD, SND_ALARM, SND_UI, SND_UI_OK,
-           SND_PORT, SND_WAVE, SND_LOSE, SND_DOWN, SND_BANNER, SND_TOWER, SND_N };
+           SND_PORT, SND_WAVE, SND_LOSE, SND_DOWN, SND_BANNER, SND_TOWER, SND_TIEFLY, SND_TIELASER, SND_N };
+// file names for the optional sound pack: <game folder>/sounds/<name>.wav replaces the built-in sound
+static const char* SND_NAMES[SND_N] = { "laser", "boom_small", "boom_big", "fireball", "fireball_hit", "shield_hit", "alarm", "ui", "ui_ok",
+                                        "port_hit", "wave_clear", "game_over", "player_down", "banner", "tower_hit", "enemy_flyby", "enemy_laser" };
 
 struct Audio {
     static const int RATE = 44100;
@@ -29,7 +32,24 @@ struct Audio {
         return v;
     }
     void build() {
-        snd[SND_LASER] = gen(0.17f, [](float t, Rng&, float& ph) { float f = 2600 * std::exp(-t * 20) + 260; ph += 2 * PI * f / RATE; return (0.55f * sq(ph) + 0.45f * std::sin(ph * 1.5f)) * std::exp(-t * 16) * 0.32f; });
+        snd[SND_LASER] = gen(0.30f, [](float t, Rng& r, float& ph) {
+            float f = 3400 * std::exp(-t * 26) + 180; ph += 2 * PI * f / RATE;            // falling "pew"
+            float ring = std::sin(ph * 2.01f) * std::exp(-t * 9) * 0.35f;                     // metallic ring on top
+            float click = t < 0.004f ? r.range(-1, 1) * 0.8f : 0;
+            return (std::sin(ph) * 0.6f + 0.25f * sq(ph) + ring + click) * std::exp(-t * 11) * 0.34f; });
+        // enemy fighter fly-by: a howl made of two detuned buzzy tones through a sweeping resonance, pitch falling as it passes
+        snd[SND_TIEFLY] = gen(1.5f, [](float t, Rng& r, float& lp) {
+            static float ph1, ph2, bp, bv; if (t == 0) { ph1 = ph2 = bp = bv = 0; }
+            float pass = 1.0f / (1 + std::exp((t - 0.55f) * 9));                            // doppler: high -> low around 0.55 s
+            float f = 210 + 260 * pass; ph1 += 2 * PI * f / RATE; ph2 += 2 * PI * f * 1.507f / RATE;
+            float saw = (std::fmod(ph1 / (2 * PI), 1.f) * 2 - 1) * 0.6f + (std::fmod(ph2 / (2 * PI), 1.f) * 2 - 1) * 0.4f;
+            float x = saw + r.range(-1, 1) * 0.5f;
+            float fc = 900 + 1700 * pass, q = 0.08f, w = 2 * PI * fc / RATE;              // resonant band-pass (state variable)
+            bp += w * bv; float hp = x - bp - q * bv * 2; bv += w * hp; lp += (bp - lp) * 0.5f;
+            float growl = 0.75f + 0.25f * std::sin(2 * PI * 31 * t);
+            float env = std::min(1.f, t * 4) * std::exp(-std::pow((t - 0.6f) / 0.5f, 2)) ;
+            return lp * growl * env * 0.55f; });
+        snd[SND_TIELASER] = gen(0.22f, [](float t, Rng&, float& ph) { float f = 1400 * std::exp(-t * 16) + 120; ph += 2 * PI * f / RATE; float saw = std::fmod(ph / (2 * PI), 1.f) * 2 - 1; return (saw * 0.6f + std::sin(ph * 0.5f) * 0.4f) * std::exp(-t * 13) * 0.3f; });
         snd[SND_BOOM_S] = gen(0.7f, [](float t, Rng& r, float& lp) { float k = 0.25f * std::exp(-t * 5) + 0.02f; lp += (r.range(-1, 1) - lp) * k; return lp * 2.2f * std::exp(-t * 6.0f) * 0.65f; });
         snd[SND_BOOM_L] = gen(1.8f, [](float t, Rng& r, float& lp) { float k = 0.12f * std::exp(-t * 3) + 0.01f; lp += (r.range(-1, 1) - lp) * k; float sub = std::sin(2 * PI * (55 - 15 * t) * t) * std::exp(-t * 2.5f); return (lp * 3.0f * std::exp(-t * 2.4f) + sub * 0.7f) * 0.6f; });
         snd[SND_BALL] = gen(0.4f, [](float t, Rng& r, float& lp) { float n = r.range(-1, 1); lp += (n - lp) * (0.05f + t * 0.5f); float tone = std::sin(2 * PI * (300 + 900 * t) * t); return (lp * 1.4f + tone * 0.18f) * std::min(1.f, t * 30) * std::exp(-t * 6) * 0.45f; });
@@ -44,6 +64,8 @@ struct Audio {
         snd[SND_DOWN] = gen(1.0f, [](float t, Rng& r, float& ph) { float f = 700 * std::exp(-t * 2.5f) + 60; ph += 2 * PI * f / RATE; return (sq(ph) * 0.5f + r.range(-1, 1) * 0.3f) * std::exp(-t * 2.5f) * 0.3f; });
         snd[SND_BANNER] = gen(0.45f, [](float t, Rng&, float& ph) { float f = 300 + 1500 * t / 0.45f; ph += 2 * PI * f / RATE; return std::sin(ph) * 0.22f * std::min(1.f, (0.45f - t) * 10); });
         snd[SND_TOWER] = gen(0.5f, [](float t, Rng& r, float& lp) { lp += (r.range(-1, 1) - lp) * 0.2f; return (lp * 1.5f + std::sin(2 * PI * 140 * t) * 0.4f) * std::exp(-t * 7) * 0.55f; });
+        auto normTo = [&](int i, float pk) { float m = 0; for (float v : snd[i]) m = std::max(m, std::fabs(v)); if (m > 1e-6f) for (float& v : snd[i]) v *= pk / m; };
+        normTo(SND_TIEFLY, 0.6f); normTo(SND_TIELASER, 0.42f);
         buildMusic();
     }
     // 32 s driving loop at 120 bpm: pulsing bass, minor pad, soft hats.
@@ -84,6 +106,34 @@ struct Audio {
         music.assign((float*)tmp.data(), (float*)tmp.data() + nf); musicSrc = path;
         return true;
     }
+    void exportWavs(const std::string& dir) {   // VS_EXPORT_SOUNDS: write every built-in sound (16-bit mono)
+        for (int i = 0; i < SND_N; i++) {
+            std::string path = dir + "/" + SND_NAMES[i] + ".wav"; FILE* f = fopen(path.c_str(), "wb"); if (!f) continue;
+            uint32_t n = (uint32_t)snd[i].size(), data = n * 2, riff = 36 + data, sr = RATE, br = RATE * 2, fmt = 16; uint16_t pcm = 1, ch = 1, ba = 2, bits = 16;
+            fwrite("RIFF", 1, 4, f); fwrite(&riff, 4, 1, f); fwrite("WAVEfmt ", 1, 8, f); fwrite(&fmt, 4, 1, f); fwrite(&pcm, 2, 1, f); fwrite(&ch, 2, 1, f);
+            fwrite(&sr, 4, 1, f); fwrite(&br, 4, 1, f); fwrite(&ba, 2, 1, f); fwrite(&bits, 2, 1, f); fwrite("data", 1, 4, f); fwrite(&data, 4, 1, f);
+            for (float v : snd[i]) { int16_t q = (int16_t)clampf(v * 32767, -32767, 32767); fwrite(&q, 2, 1, f); }
+            fclose(f);
+        }
+        printf("audio: exported %d sounds to %s\n", (int)SND_N, dir.c_str());
+    }
+    int loadSoundPack(const std::string& dir) {
+        int n = 0;
+        for (int i = 0; i < SND_N; i++) {
+            std::string path = dir + SND_NAMES[i] + ".wav";
+            SDL_AudioSpec spec; Uint8* buf = nullptr; Uint32 blen = 0;
+            if (!SDL_LoadWAV(path.c_str(), &spec, &buf, &blen)) continue;
+            SDL_AudioCVT cvt;
+            if (SDL_BuildAudioCVT(&cvt, spec.format, spec.channels, spec.freq, AUDIO_F32SYS, 1, RATE) < 0) { SDL_FreeWAV(buf); continue; }
+            cvt.len = (int)blen; std::vector<Uint8> tmp((size_t)blen * (cvt.len_mult > 0 ? cvt.len_mult : 1)); memcpy(tmp.data(), buf, blen); cvt.buf = tmp.data();
+            SDL_FreeWAV(buf);
+            if (SDL_ConvertAudio(&cvt) < 0) continue;
+            int nf = cvt.len_cvt / 4; if (nf < 16) continue;
+            snd[i].assign((float*)tmp.data(), (float*)tmp.data() + nf); n++;
+            printf("audio: %s from %s\n", SND_NAMES[i], path.c_str());
+        }
+        return n;
+    }
     static void cb(void* ud, Uint8* stream, int bytes) {
         Audio* a = (Audio*)ud; float* out = (float*)stream; int frames = bytes / 8;
         for (int i = 0; i < frames * 2; i++) out[i] = 0;
@@ -106,6 +156,7 @@ struct Audio {
     bool open(const std::string& dir) {
         build();
         if (loadMusicWav(dir + "music.wav")) printf("audio: music from %s\n", musicSrc.c_str());
+        loadSoundPack(dir + "sounds/");
         SDL_AudioSpec want = {}, have = {};
         want.freq = RATE; want.format = AUDIO_F32SYS; want.channels = 2; want.samples = 1024; want.callback = cb; want.userdata = this;
         dev = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
