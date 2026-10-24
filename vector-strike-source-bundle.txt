@@ -152,7 +152,10 @@ struct Font {
 #include "gfx.h"
 
 enum Snd { SND_LASER, SND_BOOM_S, SND_BOOM_L, SND_BALL, SND_BALLHIT, SND_SHIELD, SND_ALARM, SND_UI, SND_UI_OK,
-           SND_PORT, SND_WAVE, SND_LOSE, SND_DOWN, SND_BANNER, SND_TOWER, SND_N };
+           SND_PORT, SND_WAVE, SND_LOSE, SND_DOWN, SND_BANNER, SND_TOWER, SND_TIEFLY, SND_TIELASER, SND_N };
+// file names for the optional sound pack: <game folder>/sounds/<name>.wav replaces the built-in sound
+static const char* SND_NAMES[SND_N] = { "laser", "boom_small", "boom_big", "fireball", "fireball_hit", "shield_hit", "alarm", "ui", "ui_ok",
+                                        "port_hit", "wave_clear", "game_over", "player_down", "banner", "tower_hit", "enemy_flyby", "enemy_laser" };
 
 struct Audio {
     static const int RATE = 44100;
@@ -172,7 +175,24 @@ struct Audio {
         return v;
     }
     void build() {
-        snd[SND_LASER] = gen(0.17f, [](float t, Rng&, float& ph) { float f = 2600 * std::exp(-t * 20) + 260; ph += 2 * PI * f / RATE; return (0.55f * sq(ph) + 0.45f * std::sin(ph * 1.5f)) * std::exp(-t * 16) * 0.32f; });
+        snd[SND_LASER] = gen(0.30f, [](float t, Rng& r, float& ph) {
+            float f = 3400 * std::exp(-t * 26) + 180; ph += 2 * PI * f / RATE;            // falling "pew"
+            float ring = std::sin(ph * 2.01f) * std::exp(-t * 9) * 0.35f;                     // metallic ring on top
+            float click = t < 0.004f ? r.range(-1, 1) * 0.8f : 0;
+            return (std::sin(ph) * 0.6f + 0.25f * sq(ph) + ring + click) * std::exp(-t * 11) * 0.34f; });
+        // enemy fighter fly-by: a howl made of two detuned buzzy tones through a sweeping resonance, pitch falling as it passes
+        snd[SND_TIEFLY] = gen(1.5f, [](float t, Rng& r, float& lp) {
+            static float ph1, ph2, bp, bv; if (t == 0) { ph1 = ph2 = bp = bv = 0; }
+            float pass = 1.0f / (1 + std::exp((t - 0.55f) * 9));                            // doppler: high -> low around 0.55 s
+            float f = 210 + 260 * pass; ph1 += 2 * PI * f / RATE; ph2 += 2 * PI * f * 1.507f / RATE;
+            float saw = (std::fmod(ph1 / (2 * PI), 1.f) * 2 - 1) * 0.6f + (std::fmod(ph2 / (2 * PI), 1.f) * 2 - 1) * 0.4f;
+            float x = saw + r.range(-1, 1) * 0.5f;
+            float fc = 900 + 1700 * pass, q = 0.08f, w = 2 * PI * fc / RATE;              // resonant band-pass (state variable)
+            bp += w * bv; float hp = x - bp - q * bv * 2; bv += w * hp; lp += (bp - lp) * 0.5f;
+            float growl = 0.75f + 0.25f * std::sin(2 * PI * 31 * t);
+            float env = std::min(1.f, t * 4) * std::exp(-std::pow((t - 0.6f) / 0.5f, 2)) ;
+            return lp * growl * env * 0.55f; });
+        snd[SND_TIELASER] = gen(0.22f, [](float t, Rng&, float& ph) { float f = 1400 * std::exp(-t * 16) + 120; ph += 2 * PI * f / RATE; float saw = std::fmod(ph / (2 * PI), 1.f) * 2 - 1; return (saw * 0.6f + std::sin(ph * 0.5f) * 0.4f) * std::exp(-t * 13) * 0.3f; });
         snd[SND_BOOM_S] = gen(0.7f, [](float t, Rng& r, float& lp) { float k = 0.25f * std::exp(-t * 5) + 0.02f; lp += (r.range(-1, 1) - lp) * k; return lp * 2.2f * std::exp(-t * 6.0f) * 0.65f; });
         snd[SND_BOOM_L] = gen(1.8f, [](float t, Rng& r, float& lp) { float k = 0.12f * std::exp(-t * 3) + 0.01f; lp += (r.range(-1, 1) - lp) * k; float sub = std::sin(2 * PI * (55 - 15 * t) * t) * std::exp(-t * 2.5f); return (lp * 3.0f * std::exp(-t * 2.4f) + sub * 0.7f) * 0.6f; });
         snd[SND_BALL] = gen(0.4f, [](float t, Rng& r, float& lp) { float n = r.range(-1, 1); lp += (n - lp) * (0.05f + t * 0.5f); float tone = std::sin(2 * PI * (300 + 900 * t) * t); return (lp * 1.4f + tone * 0.18f) * std::min(1.f, t * 30) * std::exp(-t * 6) * 0.45f; });
@@ -187,6 +207,8 @@ struct Audio {
         snd[SND_DOWN] = gen(1.0f, [](float t, Rng& r, float& ph) { float f = 700 * std::exp(-t * 2.5f) + 60; ph += 2 * PI * f / RATE; return (sq(ph) * 0.5f + r.range(-1, 1) * 0.3f) * std::exp(-t * 2.5f) * 0.3f; });
         snd[SND_BANNER] = gen(0.45f, [](float t, Rng&, float& ph) { float f = 300 + 1500 * t / 0.45f; ph += 2 * PI * f / RATE; return std::sin(ph) * 0.22f * std::min(1.f, (0.45f - t) * 10); });
         snd[SND_TOWER] = gen(0.5f, [](float t, Rng& r, float& lp) { lp += (r.range(-1, 1) - lp) * 0.2f; return (lp * 1.5f + std::sin(2 * PI * 140 * t) * 0.4f) * std::exp(-t * 7) * 0.55f; });
+        auto normTo = [&](int i, float pk) { float m = 0; for (float v : snd[i]) m = std::max(m, std::fabs(v)); if (m > 1e-6f) for (float& v : snd[i]) v *= pk / m; };
+        normTo(SND_TIEFLY, 0.6f); normTo(SND_TIELASER, 0.42f);
         buildMusic();
     }
     // 32 s driving loop at 120 bpm: pulsing bass, minor pad, soft hats.
@@ -227,6 +249,34 @@ struct Audio {
         music.assign((float*)tmp.data(), (float*)tmp.data() + nf); musicSrc = path;
         return true;
     }
+    void exportWavs(const std::string& dir) {   // VS_EXPORT_SOUNDS: write every built-in sound (16-bit mono)
+        for (int i = 0; i < SND_N; i++) {
+            std::string path = dir + "/" + SND_NAMES[i] + ".wav"; FILE* f = fopen(path.c_str(), "wb"); if (!f) continue;
+            uint32_t n = (uint32_t)snd[i].size(), data = n * 2, riff = 36 + data, sr = RATE, br = RATE * 2, fmt = 16; uint16_t pcm = 1, ch = 1, ba = 2, bits = 16;
+            fwrite("RIFF", 1, 4, f); fwrite(&riff, 4, 1, f); fwrite("WAVEfmt ", 1, 8, f); fwrite(&fmt, 4, 1, f); fwrite(&pcm, 2, 1, f); fwrite(&ch, 2, 1, f);
+            fwrite(&sr, 4, 1, f); fwrite(&br, 4, 1, f); fwrite(&ba, 2, 1, f); fwrite(&bits, 2, 1, f); fwrite("data", 1, 4, f); fwrite(&data, 4, 1, f);
+            for (float v : snd[i]) { int16_t q = (int16_t)clampf(v * 32767, -32767, 32767); fwrite(&q, 2, 1, f); }
+            fclose(f);
+        }
+        printf("audio: exported %d sounds to %s\n", (int)SND_N, dir.c_str());
+    }
+    int loadSoundPack(const std::string& dir) {
+        int n = 0;
+        for (int i = 0; i < SND_N; i++) {
+            std::string path = dir + SND_NAMES[i] + ".wav";
+            SDL_AudioSpec spec; Uint8* buf = nullptr; Uint32 blen = 0;
+            if (!SDL_LoadWAV(path.c_str(), &spec, &buf, &blen)) continue;
+            SDL_AudioCVT cvt;
+            if (SDL_BuildAudioCVT(&cvt, spec.format, spec.channels, spec.freq, AUDIO_F32SYS, 1, RATE) < 0) { SDL_FreeWAV(buf); continue; }
+            cvt.len = (int)blen; std::vector<Uint8> tmp((size_t)blen * (cvt.len_mult > 0 ? cvt.len_mult : 1)); memcpy(tmp.data(), buf, blen); cvt.buf = tmp.data();
+            SDL_FreeWAV(buf);
+            if (SDL_ConvertAudio(&cvt) < 0) continue;
+            int nf = cvt.len_cvt / 4; if (nf < 16) continue;
+            snd[i].assign((float*)tmp.data(), (float*)tmp.data() + nf); n++;
+            printf("audio: %s from %s\n", SND_NAMES[i], path.c_str());
+        }
+        return n;
+    }
     static void cb(void* ud, Uint8* stream, int bytes) {
         Audio* a = (Audio*)ud; float* out = (float*)stream; int frames = bytes / 8;
         for (int i = 0; i < frames * 2; i++) out[i] = 0;
@@ -249,6 +299,7 @@ struct Audio {
     bool open(const std::string& dir) {
         build();
         if (loadMusicWav(dir + "music.wav")) printf("audio: music from %s\n", musicSrc.c_str());
+        loadSoundPack(dir + "sounds/");
         SDL_AudioSpec want = {}, have = {};
         want.freq = RATE; want.format = AUDIO_F32SYS; want.channels = 2; want.samples = 1024; want.callback = cb; want.userdata = this;
         dev = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
@@ -389,6 +440,7 @@ static void basisFrom(V3 fw, float roll, V3& rt, V3& up) {
     fw = norm3(fw); rt = cross3(V3(0, 1, 0), fw); if (len3(rt) < 1e-3f) rt = V3(1, 0, 0); rt = norm3(rt); up = cross3(fw, rt);
     if (roll != 0) { float c = std::cos(roll), s = std::sin(roll); V3 r2 = rt * c - up * s, u2 = up * c + rt * s; rt = r2; up = u2; }
 }
+static bool SPHERE_CULL = false;   // set while drawing the station: hide lines on the far side of the globe
 static void drawModelRU(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 fw, V3 rt, V3 up, float s, Col c, float w, float glow) {
     size_t ne = m.e.size();
     if (m.sorted) {   // level of detail: the longest edges first, fewer when small on screen
@@ -397,7 +449,12 @@ static void drawModelRU(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 f
     }
     for (size_t i = 0; i + 1 < ne; i += 2) {
         V3 a = m.v[m.e[i]], b = m.v[m.e[i + 1]];
-        line3(cv, cam, pos + rt * (a.x * s) + up * (a.y * s) + fw * (a.z * s), pos + rt * (b.x * s) + up * (b.y * s) + fw * (b.z * s), w, c, glow);
+        V3 wa = pos + rt * (a.x * s) + up * (a.y * s) + fw * (a.z * s), wb = pos + rt * (b.x * s) + up * (b.y * s) + fw * (b.z * s);
+        if (SPHERE_CULL) {
+            V3 mid = (wa + wb) * 0.5f, nrm = mid - pos; float nl = len3(nrm);
+            if (nl > s * 0.6f && dot3(nrm, cam.p - mid) < -0.05f * nl * len3(cam.p - mid)) continue;
+        }
+        line3(cv, cam, wa, wb, w, c, glow);
     }
 }
 static void drawModelUp(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 fw, V3 upv, float roll, float s, Col c, float w = 1.3f, float glow = 1) {
@@ -545,7 +602,8 @@ static void fireBall(V3 from, int tgt, float spdMul = 1) {
         b.v = rel * (1 / tz) + V3(0, 0, G.speed); b.life = tz + 2.5f;   // reaches the player's slot as the squad flies on
     }
     G.balls.push_back(b);
-    AU.play(SND_BALL, 0.35f, clampf(from.x / 120, -0.6f, 0.6f), R.range(0.9f, 1.1f), 60);
+    if (isSpace()) { float d = len3(from - squadCenter()); AU.play(SND_TIELASER, clampf(1.1f - d / 900, 0.15f, 0.8f), R.range(-0.5f, 0.5f), R.range(0.92f, 1.08f), 50); }
+    else AU.play(SND_BALL, 0.35f, clampf(from.x / 120, -0.6f, 0.6f), R.range(0.9f, 1.1f), 60);
 }
 
 // ---------------------------------------------------------------- phases
@@ -731,7 +789,7 @@ static void updateFighters(float dt) {
             V3 aimp = tp + tv * 0.5f + V3(std::sin(e.t * 1.3f + e.weave) * 35, std::cos(e.t * 1.1f + e.weave) * 25, std::sin(e.t * 0.8f + e.weave) * 35);
             V3 want = norm3(aimp - e.p);
             cur = norm3(cur + (want - cur) * std::min(1.f, dt * turn));
-            if (d < 120) { e.state = 1; e.hide = R.range(1.8f, 3.2f); cur = norm3(cur + rndDir() * 0.9f); }
+            if (d < 120) { e.state = 1; e.hide = R.range(1.8f, 3.2f); cur = norm3(cur + rndDir() * 0.9f); AU.play(SND_TIEFLY, 0.85f, R.range(-0.4f, 0.4f), R.range(0.9f, 1.12f), 250); }
             if (e.cd <= 0 && d < 780 && d > 90 && dot3(cur, norm3(tp - e.p)) > 0.82f) { e.cd = std::max(0.9f, 2.6f - 0.13f * G.wave) * R.range(0.8f, 1.2f); fireBall(e.p + cur * 7, e.tgt); }
         } else {              // extend away, then come round again
             e.hide -= dt; if (e.hide <= 0) { e.state = 0; e.tgt = randomAlive(); }
@@ -967,7 +1025,9 @@ static void drawStars3(Canvas& cv, const Cam& cam, V3 vel) {
 static void drawCitadel(Canvas& cv, const Cam& cam, V3 at, float size, float alpha) {
     Cam far = cam; far.fogNear = 12000; far.fogFar = 22000;
     V3 fw = MS == &PK_STATION ? V3(0, 0, 1) : V3(std::sin(G.citSpin), 0, std::cos(G.citSpin));
+    SPHERE_CULL = MS == &PK_STATION;
     drawModel(cv, far, *MS, at, fw, 0, size, withA(C_CIT, alpha), 1.2f, 0.7f);
+    SPHERE_CULL = false;
 }
 static void drawSurface(Canvas& cv, const Cam& cam, float zc) {
     Col gc = withA(C_GROUND, 0.75f);
@@ -1025,6 +1085,50 @@ static void drawBall(Canvas& cv, const Cam& cam, const Ball& b) {
     cv.glowDisc(s, r * 1.7f, withA(C_BALL, 0.75f * fg)); cv.glowDisc(s, r * 0.7f, withA(Col(255, 240, 200), fg));
     for (int i = 0; i < 6; i++) { float a = b.spin + i * PI / 3; cv.line(s + fromAng(a) * r * 0.4f, s + fromAng(a) * r * 1.6f, std::max(1.f, 1.4f * LW), withA(Col(255, 200, 90), fg), 0.6f); }
 }
+// ---- cockpit laser cannons: four barrels poking in from the screen corners, aimed at the sight.
+// Shape: long spear barrel, a short neck, then a flash hider that flares forward like an inside-out umbrella with its sides cut flat.
+static V3 camPt(const Cam& c, V3 q) { return c.p + c.r * q.x + c.u * q.y + c.f * q.z; }
+static void cannonFrame(const Player& p, int sx, int sy, V3& base, V3& tip) {
+    const Cam& c = p.cam; float hw = c.vp.w * 0.5f / c.foc, hh = c.vp.h * 0.5f / c.foc;
+    V2 co = crossOff(p); V3 aimDir = norm3(V3(co.x / c.foc, -co.y / c.foc, 1));
+    V3 conv = aimDir * 70.f;                                    // barrels converge on the sight
+    base = V3(sx * hw * 1.32f * 1.4f, sy * hh * (sy > 0 ? 0.98f : 1.22f) * 1.4f, 1.4f);
+    tip = base + norm3(conv - base) * 1.3f;
+}
+static float cannonKick(const Player& p, int sx, int sy) {
+    float k = 0; for (auto& b : G.bolts) if (b.owner == p.idx && b.sx == sx && b.sy == sy) k = std::max(k, b.t / b.max);
+    return k;   // 1 = just fired
+}
+static void drawCannons(Canvas& cv, const Player& p) {
+    const Cam& c = p.cam; Col body = mixc(Col(150, 165, 195), p.col, 0.25f), dark = withA(body, 0.55f);
+    for (int sx = -1; sx <= 1; sx += 2) for (int sy = -1; sy <= 1; sy += 2) {
+        V3 b, t; cannonFrame(p, sx, sy, b, t);
+        float kick = cannonKick(p, sx, sy);
+        V3 A = norm3(t - b); float L = len3(t - b); V3 back = A * (-0.35f * kick * kick); b += back; t += back;
+        V3 U = norm3(cross3(V3(0, 1, 0), A)), V = cross3(A, U);   // U = sideways (gets cut), V = up
+        float r = 0.05f; const int N = 10;
+        auto ringPt = [&](float at, float rad, int i, bool cut) {
+            float a = i * 2 * PI / N; float x = std::cos(a) * rad, y = std::sin(a) * rad;
+            if (cut) x = clampf(x, -r * 1.25f, r * 1.25f);
+            return b + A * (at * L) + U * x + V * y;
+        };
+        struct Ring { float at, rad; bool cut; };
+        const Ring rings[] = { { 0.0f, r, false }, { 0.30f, r, false }, { 0.60f, r, false }, { 0.74f, r * 1.25f, false }, { 0.78f, r * 0.7f, false }, { 0.84f, r * 0.75f, true }, { 1.0f, r * 3.0f, true } };
+        const int NR = sizeof(rings) / sizeof(rings[0]);
+        for (int k = 0; k < NR; k++) for (int i = 0; i < N; i++) {
+            V3 q0 = ringPt(rings[k].at, rings[k].rad, i, rings[k].cut), q1 = ringPt(rings[k].at, rings[k].rad, (i + 1) % N, rings[k].cut);
+            line3(cv, c, camPt(c, q0), camPt(c, q1), k == NR - 1 ? 1.5f : 1.0f, k == NR - 1 ? body : dark, 0.3f);
+        }
+        for (int i = 0; i < N; i += (i % 2 ? 1 : 1)) {
+            for (int k = 0; k + 1 < NR; k++) {
+                if (k < 3 && i % 2) continue;   // fewer lines along the plain barrel
+                V3 q0 = ringPt(rings[k].at, rings[k].rad, i, rings[k].cut), q1 = ringPt(rings[k + 1].at, rings[k + 1].rad, i, rings[k + 1].cut);
+                line3(cv, c, camPt(c, q0), camPt(c, q1), 1.0f, k >= NR - 2 ? body : dark, 0.3f);
+            }
+        }
+        if (kick > 0.55f) { V2 s; float z; if (c.proj(camPt(c, t + A * 0.15f), s, z)) { cv.glowDisc(s, 46 * LW * kick, Col(255, 90, 70, (int)(230 * kick))); cv.glowDisc(s, 16 * LW * kick, Col(255, 235, 220, (int)(255 * kick))); } }
+    }
+}
 static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
     bool space = G.phase == PH_SPACE || (G.phase == PH_ESCAPE && G.citBoom) || G.phase == PH_TALLY;
     drawSky(cv, cam, !space);
@@ -1063,9 +1167,9 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
         float fr = 1 - b.t / b.max;
         if (me && b.owner == me->idx) {
             // own guns: a thick red streak from the screen edge that thins as it converges on the sight
-            V2 st; float zt;
-            V2 sc(cam.vp.x + cam.vp.w * (0.5f + 0.5f * b.sx * 0.98f), cam.vp.y + cam.vp.h * (0.5f - 0.5f * b.sy * 0.82f));
-            if (!cam.proj(b.b, st, zt)) st = V2(cam.vp.x + cam.vp.w * 0.5f, cam.vp.y + cam.vp.h * 0.5f) + crossOff(*me);
+            V3 cb, ct; cannonFrame(*me, b.sx, b.sy, cb, ct); V2 sc; float zc;
+            if (!cam.proj(camPt(cam, ct), sc, zc)) continue;
+            V2 st = V2(cam.vp.x + cam.vp.w * 0.5f, cam.vp.y + cam.vp.h * 0.5f) + crossOff(*me);   // always onto the sight
             float t0 = fr * fr * 0.85f, t1 = std::min(1.f, t0 + 0.42f * (1 - fr) + 0.08f);
             V2 s0 = sc + (st - sc) * t0, s1 = sc + (st - sc) * t1;
             float w0 = std::max(2.f, 14.f * (1 - t0)) * LW, w1 = std::max(1.f, 14.f * (1 - t1)) * LW;
@@ -1207,7 +1311,7 @@ static void renderGame(Canvas& cv) {
         setupCam(*p);
         LW = std::max(0.9f, p->vp.h / 1080.f * (p->vp.h < G.H * 0.75f ? 1.5f : 1.0f) * 1.6f);
         SDL_RenderSetClipRect(G.ren, &p->vp);
-        if (!p->down) drawScene(cv, p->cam, p);
+        if (!p->down) { drawScene(cv, p->cam, p); if (G.phase != PH_TALLY && !(G.phase == PH_ESCAPE && G.citBoom)) { drawCannons(cv, *p); cv.flush(G.ren); } }
         drawHud(cv, *p); cv.flush(G.ren);
     }
     if (views.size() == 3) {   // fourth quadrant: squad board
@@ -1430,7 +1534,7 @@ static void renderMenus(Canvas& cv) {
         menuList(cv, items, 8, G.menuSel, cx, G.H * 0.24f, 30 * u, 60 * u);
         char info[120]; snprintf(info, sizeof info, "DISPLAY %d X %d   RENDERING %d X %d", G.outW, G.outH, G.W, G.H);
         FONT.draw(cv, info, V2(cx, G.H - 100 * u), 15 * u, withA(C_DIM, 0.9f), 1);
-        FONT.draw(cv, "LEFT / RIGHT TO CHANGE.  PUT MUSIC.WAV IN THE GAME FOLDER FOR YOUR OWN SOUNDTRACK", V2(cx, G.H - 60 * u), 15 * u, withA(C_DIM, 0.9f), 1);
+        FONT.draw(cv, "LEFT / RIGHT TO CHANGE.  YOUR OWN MUSIC.WAV AND SOUNDS/*.WAV IN THE GAME FOLDER REPLACE THE BUILT-IN AUDIO", V2(cx, G.H - 60 * u), 15 * u, withA(C_DIM, 0.9f), 1);
         break;
     }
     case ST_LOBBY: {
@@ -1596,6 +1700,7 @@ int main(int argc, char** argv) {
     SDL_RendererInfo ri; SDL_GetRendererInfo(G.ren, &ri); printf("renderer: %s\n", ri.name);
     SDL_ShowCursor(SDL_DISABLE);
     setupTarget();
+    if (getenv("VS_EXPORT_SOUNDS")) { AU.build(); AU.exportWavs(getenv("VS_EXPORT_SOUNDS")); return 0; }
     if (!getenv("VS_MUTE")) AU.open(G.dir);
     applyAudioVol();
     Dev kb; kb.id = -1; kb.name = "KEYBOARD"; G.devs.push_back(kb);
@@ -1657,7 +1762,7 @@ Low-poly look: quadric-decimate to --faces, then keep sharp feature edges (> --a
 import argparse, numpy as np, trimesh
 ap = argparse.ArgumentParser(); ap.add_argument('inp'); ap.add_argument('out')
 ap.add_argument('--angle', type=float, default=28); ap.add_argument('--faces', type=int, default=1600); ap.add_argument('--max', type=int, default=1100)
-ap.add_argument('--skip', default=''); ap.add_argument('--matrix', default=''); ap.add_argument('--sphere', default=''); ap.add_argument('--preview', default='')
+ap.add_argument('--skip', default=''); ap.add_argument('--matrix', default=''); ap.add_argument('--sphere', default=''); ap.add_argument('--preview', default=''); ap.add_argument('--greeble', type=int, default=0); ap.add_argument('--seed', type=int, default=7)
 a = ap.parse_args()
 s = trimesh.load(a.inp, force='scene'); parts = []; sph = None
 for name in s.graph.nodes_geometry:
@@ -1693,16 +1798,34 @@ if sph is not None:
         b = len(pts) + sum(len(x) for x in V)
         for i in range(n): pts.append(fn(2 * np.pi * i / n))
         for i in range(n): ed.append((b + i, b + (i + 1) % n))
-    for lat in [-70, -50, -30, -12, 12, 30, 50, 70]:
-        la = np.radians(lat); ring(lambda t, la=la: cen + r * np.array([np.cos(la) * np.cos(t), np.sin(la), np.cos(la) * np.sin(t)]))
+    for lat in [-75, -62, -50, -38, -26, -14, 14, 26, 38, 50, 62, 75]:
+        la = np.radians(lat); ring(lambda t, la=la: cen + r * np.array([np.cos(la) * np.cos(t), np.sin(la), np.cos(la) * np.sin(t)]), 64)
+    for dy in (-0.055, 0.055):   # trench walls' outer edges
+        ring(lambda t, dy=dy: cen + r * np.array([np.sqrt(1 - dy * dy) * np.cos(t), dy, np.sqrt(1 - dy * dy) * np.sin(t)]), 64)
     for dy in (-0.025, 0.025):   # equatorial trench
         ring(lambda t, dy=dy: cen + r * np.array([np.sqrt(1 - dy * dy) * np.cos(t), dy, np.sqrt(1 - dy * dy) * np.sin(t)]), 64)
-    for k in range(12):
-        lo = 2 * np.pi * k / 12; b = len(pts) + sum(len(x) for x in V); n = 24
+    for k in range(24):
+        lo = 2 * np.pi * k / 24; b = len(pts) + sum(len(x) for x in V); n = 36
         for i in range(n + 1):
             la = -np.pi / 2 + np.pi * i / n; pts.append(cen + r * np.array([np.cos(la) * np.cos(lo), np.sin(la), np.cos(la) * np.sin(lo)]))
         for i in range(n):
             if abs(i - n / 2) > 0.6: ed.append((b + i, b + i + 1))   # skip across the trench
+    # surface plating: small lat/long-aligned panels and city blocks scattered over the hull (not on the dish)
+    rng = np.random.default_rng(a.seed); dishdir = None
+    if parts:
+        dv = np.vstack([(p.vertices - c) * sc @ R.T for p in parts]); dishdir = (dv.mean(0) - cen); dishdir /= np.linalg.norm(dishdir)
+    def sp(la, lo, h=1.0): return cen + r * h * np.array([np.cos(la) * np.cos(lo), np.sin(la), np.cos(la) * np.sin(lo)])
+    for _ in range(a.greeble):
+        la = np.arcsin(rng.uniform(-0.93, 0.93)); lo = rng.uniform(0, 2 * np.pi)
+        if abs(la) < np.radians(5): continue
+        if dishdir is not None and np.dot(sp(la, lo) - cen, dishdir) / r > 0.88: continue
+        dla = rng.uniform(0.015, 0.05); dlo = rng.uniform(0.02, 0.07) / max(0.3, np.cos(la)); h = 1 + rng.uniform(0.002, 0.012)
+        b = len(pts) + sum(len(x) for x in V)
+        if rng.random() < 0.6:   # raised block outline
+            for q in [(la, lo), (la, lo + dlo), (la + dla, lo + dlo), (la + dla, lo)]: pts.append(sp(*q, h))
+            ed += [(b, b + 1), (b + 1, b + 2), (b + 2, b + 3), (b + 3, b)]
+        else:                     # panel seam: an L of two lines
+            pts += [sp(la, lo, h), sp(la, lo + dlo * 2, h), sp(la + dla * 2, lo, h)]; ed += [(b, b + 1), (b, b + 2)]
     V.append(np.array(pts)); E.append(np.array(ed))
 V = np.vstack(V); E = np.vstack(E)
 L = np.linalg.norm(V[E[:, 0]] - V[E[:, 1]], axis=1); E = E[L > 0.003]; L = L[L > 0.003]

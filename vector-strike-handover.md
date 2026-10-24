@@ -2,6 +2,11 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v5 (24 Oct ~17:35)
+- **Chase view**: Y (keyboard V) toggles cockpit / third person per player. Chase cam sits 5.5 ship-scales behind and 1.4 above, looking past the ship (space: follows the ship's own up; rails: fixed offset, kept inside the trench). Cockpit cannons hidden in chase view; your lasers then draw in 3D from your wingtips. Gyro recentre is now L3 only. Test switch `VS_THIRD=1`.
+- **Full bodies**: player ships (wingmen, and you in chase view) skip the level-of-detail cut (`FULL_DETAIL`), so the whole X-wing shows at any distance until it is under ~6 px.
+- Deployed md5 `8e8ea16271ca34cbc308cfae9d8c6594`.
+
 ## v4 (24 Oct ~17:25)
 - **Cockpit laser cannons**: four wireframe cannons poke in from the screen corners (long barrel, neck, flared flash hider cut flat on the sides), aimed at the sight; they kick back and flash when they fire. Your own laser streaks now run from each cannon tip exactly onto the crosshair (screen space). Code: `cannonFrame` / `drawCannons` in main.cpp.
 - **Sounds**: Claude declined to fetch film sound effects (Lucasfilm audio) and synthesized sound-alikes instead: ringing falling-chirp laser, enemy fly-by howl (detuned buzz through a sweeping resonance with a doppler drop, plays when an interceptor breaks off past you), enemy laser. **Sound pack**: any `<game>/sounds/<name>.wav` replaces a built-in sound (names: laser, boom_small, boom_big, fireball, fireball_hit, shield_hit, alarm, ui, ui_ok, port_hit, wave_clear, game_over, player_down, banner, tower_hit, enemy_flyby, enemy_laser). Empty `sounds/` folder created on the box. `VS_EXPORT_SOUNDS=dir` writes all built-ins as wavs.
