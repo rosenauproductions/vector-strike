@@ -493,7 +493,7 @@ static const int STARTBONUS[3] = { 0, 40000, 100000 };
 static const float GROUND_Y = -40, TR_W = 22, TR_FLOOR = -42;
 static const int MAXSH = 6;
 
-struct Enemy { int kind = 0; V3 p, v; float hp = 1, cd = 1, t = 0, h = 0, flash = 0, weave = 0, hide = 0; int tgt = 0, state = 0, side = 0; bool dead = false, capDead = false; };
+struct Enemy { int kind = 0; V3 p, v; float hp = 1, cd = 1, t = 0, h = 0, flash = 0, weave = 0, hide = 0, tailT = 0, lostT = 0; int tgt = 0, state = 0, side = 0; bool dead = false, capDead = false; };
 struct Ball { V3 p, v; float life = 6, spin = 0; bool dead = false; };
 struct Bolt { V3 a, b; float t, max; Col c; int owner; int sx, sy; };
 struct Frag { V3 p, v, d; float life, max; Col c; };
@@ -512,6 +512,7 @@ struct Player {
     float x = 0, y = 0, zoff = 0; V2 aim; float fireCd = 0; int gun = 0; int shields = MAXSH; bool down = false;
     float inv = 0, hitT = 0, shake = 0, downT = 0, bank = 0, pitchExtra = 0, botFire = 0; int score = 0, kills = 0, ballsShot = 0;
     V3 pos, fwd = V3(0, 0, 1), up = V3(0, 1, 0); float speed = 110, thr = 0;   // open-space flight
+    bool tailNow = false; float tailHold = 0, tailDist = 0, camBack = 0; std::string msg; float msgT = 0;   // enemy-on-your-tail state
     SDL_Rect vp = { 0, 0, 0, 0 }; Cam cam;
 };
 struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5; int best = 0, bestWave = 0; };
@@ -583,6 +584,8 @@ static int aliveCount() { int n = 0; for (auto& p : G.pl) if (p.joined && !p.dow
 static int joinedCount() { int n = 0; for (auto& p : G.pl) if (p.joined) n++; return n; }
 static bool isSpace() { return G.phase == PH_SPACE || (G.phase == PH_ESCAPE && G.citBoom) || G.phase == PH_TALLY; }
 static V3 ppos(const Player& p) { return isSpace() ? p.pos : V3(p.x, p.y, G.z + p.zoff); }
+static bool viewThird(const Player& p) { return p.third || (p.tailHold > 0 && G.phase == PH_SPACE); }
+static void pmsg(Player& p, const std::string& m) { p.msg = m; p.msgT = 2.2f; }
 static V3 pvel(const Player& p) { return isSpace() ? p.fwd * p.speed : V3(0, 0, G.speed); }
 static V3 squadCenter() { V3 c; int n = 0; for (auto& p : G.pl) if (p.joined && !p.down) { c += ppos(p); n++; } return n ? c * (1.f / n) : V3(); }
 static int randomAlive() { std::vector<int> v; for (int i = 0; i < 4; i++) if (G.pl[i].joined && !G.pl[i].down) v.push_back(i); return v.empty() ? 0 : v[R.i((int)v.size())]; }
@@ -613,6 +616,7 @@ static void placeFormation(float spread) {
 }
 static void beginPhase(int ph) {
     int prev = G.phase; G.railMul = 1;
+    for (auto& q : G.pl) { q.tailNow = false; q.tailHold = 0; }
     G.phase = ph; G.phaseT = 0;
     if (prev == PH_SPACE && (ph == PH_SURFACE || ph == PH_TRENCH)) {   // dive from open space onto the rails
         G.z = 0; placeFormation(10); for (auto& p : G.pl) if (p.joined) p.y += ph == PH_SURFACE ? 30 : -20;
@@ -748,6 +752,10 @@ static void playerFire(Player& p) {
     if (type == 1) {
         Enemy& e = G.en[idx]; e.hp -= 1; e.flash = 0.1f;
         if (e.hp > 0) { AU.play(SND_BALLHIT, 0.4f); return; }
+        if (e.kind == EN_FIGHTER && e.state == 3 && e.tgt != p.idx && G.pl[e.tgt].joined) {
+            Player& sv = G.pl[e.tgt]; p.score += 500; pmsg(p, "SAVED P" + std::to_string(sv.idx + 1) + "  +500"); pmsg(sv, "P" + std::to_string(p.idx + 1) + " SAVED YOU");
+            printf("game: P%d shot the fighter off P%d's tail\n", p.idx + 1, sv.idx + 1);
+        }
         if (e.kind == EN_FIGHTER) { e.dead = true; G.killsDone++; p.kills++; p.score += 1000; explode3(e.p, 5, C_ENEMY, V3(0, 0, G.speed)); AU.play(SND_BOOM_S, 0.75f); }
         else if (e.kind == EN_TOWER) { e.capDead = true; p.kills++; p.score += 250; explode3(e.p + V3(0, 3, 0), 5, C_TOWER, V3(0, 0, 0)); AU.play(SND_TOWER, 0.7f); }
         else { e.dead = true; p.kills++; p.score += 300; explode3(e.p, 4, C_CAT); AU.play(SND_BOOM_S, 0.6f); }
@@ -766,7 +774,10 @@ static void playerFire(Player& p) {
 // ---------------------------------------------------------------- simulation
 static void spawnFighterNear(Enemy& e) {
     V3 sc = squadCenter(); V3 toSt = norm3(G.stC - sc); V3 d = norm3(toSt * 1.1f + rndDir());
-    e.p = sc + d * R.range(850, 1150); e.v = norm3(sc - e.p) * 130; e.tgt = randomAlive(); e.state = 0; e.t = R.range(0, 5);
+    e.p = sc + d * R.range(850, 1150); e.v = norm3(sc - e.p) * 130; e.tgt = randomAlive(); e.state = 0; e.t = R.range(0, 5); e.tailT = e.lostT = 0;
+    if (R.f() < 0.2f && G.phase == PH_SPACE) {   // sneak in from behind someone
+        Player& T = G.pl[e.tgt]; e.p = T.pos - T.fwd * R.range(520, 750) + rndDir() * 60; e.v = T.fwd * 140;
+    }
 }
 static void updateFighters(float dt) {
     int alive = 0; for (auto& e : G.en) if (!e.dead && e.kind == EN_FIGHTER) alive++;
@@ -779,13 +790,31 @@ static void updateFighters(float dt) {
     }
     float spd = 125 + 8.f * G.wave, turn = 1.5f + 0.06f * G.wave;
     V3 sc = squadCenter();
+    bool wasTailed[4]; for (int i = 0; i < 4; i++) { wasTailed[i] = G.pl[i].tailNow; G.pl[i].tailNow = false; }
     for (auto& e : G.en) {
         if (e.dead || e.kind != EN_FIGHTER) continue;
         e.t += dt; e.flash = std::max(0.f, e.flash - dt); e.cd -= dt;
         if (G.pl[e.tgt].down || !G.pl[e.tgt].joined) e.tgt = randomAlive();
         Player& T = G.pl[e.tgt]; V3 tp = ppos(T), tv = pvel(T);
-        V3 cur = norm3(e.v); float d = len3(tp - e.p);
-        if (e.state == 0) {   // attack run: chase a point ahead of the target, weaving
+        V3 cur = norm3(e.v); float d = len3(tp - e.p); float espd = spd;
+        // got behind its target? latch on to the tail
+        if (e.state == 0 && d < 380 && dot3(e.p - tp, T.fwd) < -40 && !T.down) { e.state = 3; e.tailT = 0; e.lostT = 0; e.cd = std::max(e.cd, 0.8f); }
+        if (e.state == 3) {   // tailing: sit ~110 behind and shoot; hard turns or braking shake it off
+            e.tailT += dt;
+            V3 want = norm3(tp - T.fwd * 110 - e.p);
+            float tturn = 1.05f + 0.04f * G.wave;
+            cur = norm3(cur + (want - cur) * std::min(1.f, dt * tturn));
+            espd = clampf(T.speed * 1.02f + (d - 110) * 0.7f, 40, 320);
+            V3 toT = norm3(tp - e.p); float ang = std::acos(clampf(dot3(cur, toT), -1, 1));
+            if (ang > 0.87f) e.lostT += dt; else e.lostT = std::max(0.f, e.lostT - dt * 0.5f);
+            T.tailNow = true; T.tailDist = d;
+            if (e.cd <= 0 && d < 420 && ang < 0.3f) { e.cd = std::max(0.9f, 2.0f - 0.08f * G.wave) * R.range(0.8f, 1.2f); fireBall(e.p + cur * 7, e.tgt); }
+            bool overshoot = dot3(e.p - tp, T.fwd) > 0 && d < 60;
+            if (e.lostT > 1.0f || overshoot || e.tailT > 12 || T.down) {
+                if (!T.down && e.tailT <= 12) { if (overshoot) pmsg(T, "IT OVERSHOT - NOW GET IT"); else { pmsg(T, "SHAKEN OFF  +250"); T.score += 250; } }
+                e.state = 1; e.hide = R.range(1.5f, 2.5f); AU.play(SND_TIEFLY, 0.8f, R.range(-0.4f, 0.4f), R.range(0.9f, 1.1f), 250);
+            }
+        } else if (e.state == 0) {   // attack run: chase a point ahead of the target, weaving
             V3 aimp = tp + tv * 0.5f + V3(std::sin(e.t * 1.3f + e.weave) * 35, std::cos(e.t * 1.1f + e.weave) * 25, std::sin(e.t * 0.8f + e.weave) * 35);
             V3 want = norm3(aimp - e.p);
             cur = norm3(cur + (want - cur) * std::min(1.f, dt * turn));
@@ -795,8 +824,13 @@ static void updateFighters(float dt) {
             e.hide -= dt; if (e.hide <= 0) { e.state = 0; e.tgt = randomAlive(); }
         }
         V3 ds = e.p - G.stC; float dsl = len3(ds); if (dsl < G.stR * 1.12f) cur = norm3(cur + ds * (1 / dsl) * (dt * 4));   // stay off the station
-        e.v = cur * spd; e.p += e.v * dt;
+        e.v = cur * espd; e.p += e.v * dt;
         if (len3(e.p - sc) > 2600) spawnFighterNear(e);
+    }
+    for (int i = 0; i < 4; i++) {
+        Player& q = G.pl[i]; if (!q.joined) continue;
+        if (q.tailNow && !wasTailed[i] && q.tailHold <= 0) { AU.play(SND_ALARM, 0.45f, 0, 1.2f, 800); printf("game: P%d has an enemy on the tail\n", i + 1); }
+        if (q.tailNow) q.tailHold = 1.2f; else q.tailHold = std::max(0.f, q.tailHold - dt);
     }
 }
 static void updateTowersTurrets(float dt) {
@@ -884,7 +918,7 @@ static void botThink(Player& p, float dt, V2& desired, bool& fire) {
 }
 
 static void updatePlayer(Player& p, float dt) {
-    p.inv = std::max(0.f, p.inv - dt); p.hitT = std::max(0.f, p.hitT - dt); p.shake *= std::pow(0.02f, dt); if (p.shake < 0.1f) p.shake = 0; p.fireCd -= dt;
+    p.inv = std::max(0.f, p.inv - dt); p.hitT = std::max(0.f, p.hitT - dt); p.msgT = std::max(0.f, p.msgT - dt); p.shake *= std::pow(0.02f, dt); if (p.shake < 0.1f) p.shake = 0; p.fireCd -= dt;
     if (p.down) { p.downT += dt; return; }
     bool fire = false;
     if (G.phase == PH_ESCAPE || G.phase == PH_TALLY) { p.aim = p.aim * std::pow(0.1f, dt); }
@@ -1160,7 +1194,7 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
     }
     for (auto& c : G.cat) box3(cv, cam, V3(-TR_W, c.y0, c.z - 1.5f), V3(TR_W, c.y1, c.z + 1.5f), C_CAT, 1.4f, true);
     FULL_DETAIL = true;
-    for (auto& o : G.pl) if (o.joined && !o.down && (&o != me || me->third)) {
+    for (auto& o : G.pl) if (o.joined && !o.down && (&o != me || viewThird(*me))) {
         if (isSpace()) drawModelUp(cv, cam, *MP, ppos(o), o.fwd, o.up, o.bank * 1.6f, S_PLAYER, o.col, 1.3f);
         else drawModel(cv, cam, *MP, ppos(o), V3(o.aim.x * 0.3f, o.aim.y * 0.25f + o.pitchExtra, 1), -o.bank * 1.4f, S_PLAYER, o.col, 1.3f);
     }
@@ -1168,7 +1202,7 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
     for (auto& b : G.balls) drawBall(cv, cam, b);
     for (auto& b : G.bolts) {
         float fr = 1 - b.t / b.max;
-        if (me && b.owner == me->idx && !me->third) {
+        if (me && b.owner == me->idx && !viewThird(*me)) {
             // own guns: a thick red streak from the screen edge that thins as it converges on the sight
             V3 cb, ct; cannonFrame(*me, b.sx, b.sy, cb, ct); V2 sc; float zc;
             if (!cam.proj(camPt(cam, ct), sc, zc)) continue;
@@ -1214,6 +1248,7 @@ static void drawTargets(Canvas& cv, Player& p, float u) {
     for (auto& e : G.en) if (!e.dead && e.kind == EN_FIGHTER) ts.push_back({ e.p, C_ENEMY, len3(e.p - me), 0 });
     std::sort(ts.begin(), ts.end(), [](const T& a, const T& b) { return a.d < b.d; }); if (ts.size() > 6) ts.resize(6);
     ts.push_back({ G.stC, C_PORT, len3(G.stC - me) - G.stR, 1 });
+    for (auto& o : G.pl) if (o.joined && !o.down && &o != &p && o.tailNow) ts.push_back({ ppos(o), o.col, len3(ppos(o) - me), 2 + o.idx });
     for (auto& t : ts) {
         V3 c = cam.toCam(t.pos); float mx = vp.w * 0.5f - 70 * u, my = vp.h * 0.5f - 100 * u;
         bool on = false; V2 sp;
@@ -1223,6 +1258,10 @@ static void drawTargets(Canvas& cv, Player& p, float u) {
             if (t.kind == 0) {
                 float r = std::max(13 * u, S_ENEMY * 1.6f * cam.foc / c.z), k = r * 0.4f;
                 for (int sx = -1; sx <= 1; sx += 2) for (int sy = -1; sy <= 1; sy += 2) { V2 q = sp + V2(sx * r, sy * r); cv.line(q, q - V2(sx * k, 0), 1.6f * u, withA(t.c, 0.8f), 0.4f); cv.line(q, q - V2(0, sy * k), 1.6f * u, withA(t.c, 0.8f), 0.4f); }
+            } else if (t.kind >= 2) {
+                float bl = 0.5f + 0.5f * std::sin(G.time * 10); float r = std::max(18 * u, S_PLAYER * 1.4f * cam.foc / c.z);
+                cv.circle(sp, r, 2 * u, withA(t.c, 0.5f + 0.5f * bl), 0.8f);
+                snprintf(buf, sizeof buf, "HELP P%d", t.kind - 1); FONT.draw(cv, buf, sp + V2(0, r + 8 * u), 15 * u, withA(t.c, 0.6f + 0.4f * bl), 1);
             } else if (G.approach || t.d < 4000) {
                 snprintf(buf, sizeof buf, "STATION %d", (int)std::max(0.f, t.d) / 10 * 10);
                 FONT.draw(cv, buf, sp + V2(0, 30 * u), 14 * u, withA(t.c, 0.85f * blink), 1);
@@ -1235,6 +1274,7 @@ static void drawTargets(Canvas& cv, Player& p, float u) {
         V2 tri[3] = { e + d * sz, e - d * sz * 0.6f + n * sz * 0.75f, e - d * sz * 0.6f - n * sz * 0.75f };
         cv.fillPoly(tri, 3, withA(t.c, 0.45f * blink)); cv.poly(tri, 3, 1.8f * u, withA(t.c, blink), 0.7f);
         if (t.kind == 1) { snprintf(buf, sizeof buf, "%d", (int)std::max(0.f, t.d) / 10 * 10); FONT.draw(cv, buf, e - d * sz * 2.2f + V2(0, -7 * u), 13 * u, withA(t.c, blink), 1); }
+        if (t.kind >= 2) { snprintf(buf, sizeof buf, "HELP P%d", t.kind - 1); FONT.draw(cv, buf, e - d * sz * 2.6f + V2(0, -7 * u), 14 * u, t.c, 1); }
     }
     // speed gauge (left edge)
     float gx = vp.x + 26 * u, gy0 = vp.y + vp.h * 0.32f, gh = vp.h * 0.36f, fr = (p.speed - 35) / (250 - 35.f);
@@ -1262,6 +1302,12 @@ static void drawHud(Canvas& cv, Player& p) {
         cv.line(c - V2(5 * u, 0), c + V2(5 * u, 0), lw * 0.8f, withA(cc, 0.8f), 0.4f);
     }
     if (G.phase == PH_SPACE) drawTargets(cv, p, u);
+    if (G.phase == PH_SPACE && p.tailHold > 0) {
+        float bl = 0.55f + 0.45f * std::sin(G.time * 12);
+        FONT.draw(cv, "ENEMY ON YOUR TAIL", V2(cx, vp.y + vp.h * 0.72f), 30 * u, withA(C_BAD, bl), 1, 0, 1.1f);
+        FONT.draw(cv, "TURN HARD OR BRAKE TO SHAKE IT - OR GET A WINGMATE TO SHOOT IT", V2(cx, vp.y + vp.h * 0.72f + 42 * u), 14 * u, withA(C_WHITE, 0.85f), 1);
+    }
+    if (p.msgT > 0) FONT.draw(cv, p.msg.c_str(), V2(cx, vp.y + vp.h * 0.64f), 26 * u, withA(C_GOOD, std::min(1.f, p.msgT * 2)), 1, 0, 1.0f);
     // canopy struts
     Col sc = withA(Col(90, 110, 150), 0.55f);
     cv.line(V2((float)vp.x, (float)(vp.y + vp.h)), V2(vp.x + vp.w * 0.16f, vp.y + vp.h * 0.86f), 2.5f * u, sc, 0.3f);
@@ -1305,8 +1351,11 @@ static void setupCam(Player& p) {
     float sh = p.shake * G.cv.px * 0.05f; if (sh > 0) pos += V3(R.range(-sh, sh), R.range(-sh, sh), 0);
     float vfov = p.vp.w > p.vp.h * 2.5f ? 0.62f : 0.95f;
     if (isSpace()) {
-        if (p.third) {   // chase camera: behind and above, looking past the ship
-            V3 cp = pos - p.fwd * (S_PLAYER * 5.5f) + p.up * (S_PLAYER * 1.4f), look = pos + p.fwd * (S_PLAYER * 12);
+        if (viewThird(p)) {   // chase camera: behind and above, looking past the ship; pulls way back to frame a fighter on your tail
+            float want = p.tailHold > 0 ? clampf(p.tailDist + 40, S_PLAYER * 5.5f, 300) : S_PLAYER * 5.5f;
+            if (p.camBack <= 0) p.camBack = want; p.camBack += (want - p.camBack) * 0.06f;
+            float back = p.camBack, upz = S_PLAYER * 1.4f + (back - S_PLAYER * 5.5f) * 0.28f;
+            V3 cp = pos - p.fwd * back + p.up * upz, look = pos + p.fwd * (S_PLAYER * 12);
             p.cam.setBasis(cp, look - cp, p.up, p.bank * 0.35f, p.vp, vfov);
         } else p.cam.setBasis(pos, p.fwd, p.up, p.bank, p.vp, vfov);
         p.cam.fogNear = 1700; p.cam.fogFar = 3200; return;
@@ -1324,7 +1373,7 @@ static void renderGame(Canvas& cv) {
         setupCam(*p);
         LW = std::max(0.9f, p->vp.h / 1080.f * (p->vp.h < G.H * 0.75f ? 1.5f : 1.0f) * 1.6f);
         SDL_RenderSetClipRect(G.ren, &p->vp);
-        if (!p->down) { drawScene(cv, p->cam, p); if (!p->third && G.phase != PH_TALLY && !(G.phase == PH_ESCAPE && G.citBoom)) { drawCannons(cv, *p); cv.flush(G.ren); } }
+        if (!p->down) { drawScene(cv, p->cam, p); if (!viewThird(*p) && G.phase != PH_TALLY && !(G.phase == PH_ESCAPE && G.citBoom)) { drawCannons(cv, *p); cv.flush(G.ren); } }
         drawHud(cv, *p); cv.flush(G.ren);
     }
     if (views.size() == 3) {   // fourth quadrant: squad board
@@ -1671,6 +1720,7 @@ static void testSetup() {
     startGame();
     if (getenv("VS_PHASE")) { std::string ph = getenv("VS_PHASE"); if (ph == "surface") beginPhase(PH_SURFACE); else if (ph == "trench") beginPhase(PH_TRENCH); else if (ph == "tally") beginPhase(PH_TALLY); else if (ph == "escape") beginPhase(PH_ESCAPE); }
     if (getenv("VS_THIRD")) for (auto& p : G.pl) p.third = true;
+    if (getenv("VS_TAILTEST")) { Enemy e; e.kind = EN_FIGHTER; e.tgt = 0; e.state = 3; e.p = G.pl[0].pos - G.pl[0].fwd * 150 + V3(10, 6, 0); e.v = G.pl[0].fwd * 120; e.cd = 5; G.en.push_back(e); }
     for (auto& p : G.pl) if (p.joined) setupCam(p);
     if (getenv("VS_ADVANCE")) {
         float secs = (float)atof(getenv("VS_ADVANCE")); float t = 0; int lastWave = G.wave;

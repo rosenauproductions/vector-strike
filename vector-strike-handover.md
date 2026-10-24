@@ -2,6 +2,9 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v7 (24 Oct ~18:10)
+- Options: CHASE DISTANCE 1-10 (5 = default; 0.52x-1.6x of 5.5 ship-scales back, height scales too), saved as `chase=`. Tail-chase framing still pulls further back when needed.
+
 ## v6 (24 Oct ~18:10)
 - **Enemy on your tail**: an interceptor that gets within 380 behind its target (or spawns there: 20% of spawns sneak in 520-750 behind someone) latches on (state 3): sits ~110 behind, matches speed, fires when lined up. Your view auto-switches to the chase camera, which pulls back to frame both ships (back = tail distance + 40, up to 300); red "ENEMY ON YOUR TAIL" warning + alarm. Ways out: turn hard (its tail turn rate 1.05 rad/s < yours; more than 50° off for 1 s = shaken off, +250), brake so it overshoots ("IT OVERSHOT - NOW GET IT"), or a wingmate shoots it ("SAVED Px +500" / "Px SAVED YOU"). Wingmates see a blinking ring + "HELP Px" arrow on the tailed player. Tails give up after 12 s. View returns to your own setting 1.2 s after the tail ends. Test hook `VS_TAILTEST=1`.
 - Deployed md5 see below.
