@@ -440,12 +440,12 @@ static void basisFrom(V3 fw, float roll, V3& rt, V3& up) {
     fw = norm3(fw); rt = cross3(V3(0, 1, 0), fw); if (len3(rt) < 1e-3f) rt = V3(1, 0, 0); rt = norm3(rt); up = cross3(fw, rt);
     if (roll != 0) { float c = std::cos(roll), s = std::sin(roll); V3 r2 = rt * c - up * s, u2 = up * c + rt * s; rt = r2; up = u2; }
 }
-static bool SPHERE_CULL = false;   // set while drawing the station: hide lines on the far side of the globe
+static bool SPHERE_CULL = false, FULL_DETAIL = false;   // FULL_DETAIL: draw every edge (player ships)   // set while drawing the station: hide lines on the far side of the globe
 static void drawModelRU(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 fw, V3 rt, V3 up, float s, Col c, float w, float glow) {
     size_t ne = m.e.size();
     if (m.sorted) {   // level of detail: the longest edges first, fewer when small on screen
         V3 cc = cam.toCam(pos); if (cc.z < -s * 1.5f) return;
-        if (cc.z > 1) { float rpx = s * cam.foc / cc.z; ne = std::min(ne, (size_t)std::max(40, (int)(rpx * 8)) * 2); glow *= rpx < 25 ? 0.5f : 0.35f; w *= 0.85f; }
+        if (cc.z > 1) { float rpx = s * cam.foc / cc.z; if (!FULL_DETAIL || rpx < 6) ne = std::min(ne, (size_t)std::max(FULL_DETAIL ? 200 : 40, (int)(rpx * 8)) * 2); glow *= rpx < 25 ? 0.5f : 0.35f; w *= 0.85f; }
     }
     for (size_t i = 0; i + 1 < ne; i += 2) {
         V3 a = m.v[m.e[i]], b = m.v[m.e[i + 1]];
@@ -508,7 +508,7 @@ struct Dev {
     bool ml = false, mouseMoved = false; V2 mouse; V3 gyro;
 };
 struct Player {
-    bool joined = false, bot = false, invert = false, gyro = false, devLost = false; int dev = -9, idx = 0; Col col;
+    bool joined = false, bot = false, invert = false, gyro = false, devLost = false, third = false; int dev = -9, idx = 0; Col col;
     float x = 0, y = 0, zoff = 0; V2 aim; float fireCd = 0; int gun = 0; int shields = MAXSH; bool down = false;
     float inv = 0, hitT = 0, shake = 0, downT = 0, bank = 0, pitchExtra = 0, botFire = 0; int score = 0, kills = 0, ballsShot = 0;
     V3 pos, fwd = V3(0, 0, 1), up = V3(0, 1, 0); float speed = 110, thr = 0;   // open-space flight
@@ -900,7 +900,7 @@ static void updatePlayer(Player& p, float dt) {
                 fire = d->b[B_A] || d->ml; p.thr = d->tr - d->tl;
             } else if (p.gyro && d->hasGyro) {
                 p.aim = p.aim + V2(-d->gyro.y * 1.15f, d->gyro.x * 1.15f * (p.invert ? -1 : 1)) * dt + V2(mv.x, -mv.y) * (1.8f * dt);
-                if (pr(*d, B_LS) || pr(*d, B_Y)) p.aim = V2();
+                if (pr(*d, B_LS)) p.aim = V2();
                 fire = d->b[B_A] || d->b[B_B] || d->b[B_RB]; p.thr = d->tr - d->tl;
             } else {
                 V2 want(mv.x, -mv.y); p.aim = p.aim + (want - p.aim) * std::min(1.f, dt * 14);
@@ -908,6 +908,7 @@ static void updatePlayer(Player& p, float dt) {
             }
         }
     }
+    if (!p.bot) { Dev* dv = devById(p.dev); if (dv && pr(*dv, B_Y)) { p.third = !p.third; AU.play(SND_UI, 0.5f); } }
     if (getenv("VS_AUTOFIRE")) fire = true;   // test switch
     p.aim.x = clampf(p.aim.x, -1, 1); p.aim.y = clampf(p.aim.y, -1, 1);
     if (G.phase == PH_SPACE) {
@@ -1158,14 +1159,16 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
         } else drawModel(cv, cam, M_TURRET, e.p, V3(-e.side * 1.f, 0, -0.4f), 0, 1.0f, e.flash > 0 ? C_WHITE : C_CAT, 1.3f);
     }
     for (auto& c : G.cat) box3(cv, cam, V3(-TR_W, c.y0, c.z - 1.5f), V3(TR_W, c.y1, c.z + 1.5f), C_CAT, 1.4f, true);
-    for (auto& o : G.pl) if (o.joined && !o.down && &o != me) {
+    FULL_DETAIL = true;
+    for (auto& o : G.pl) if (o.joined && !o.down && (&o != me || me->third)) {
         if (isSpace()) drawModelUp(cv, cam, *MP, ppos(o), o.fwd, o.up, o.bank * 1.6f, S_PLAYER, o.col, 1.3f);
         else drawModel(cv, cam, *MP, ppos(o), V3(o.aim.x * 0.3f, o.aim.y * 0.25f + o.pitchExtra, 1), -o.bank * 1.4f, S_PLAYER, o.col, 1.3f);
     }
+    FULL_DETAIL = false;
     for (auto& b : G.balls) drawBall(cv, cam, b);
     for (auto& b : G.bolts) {
         float fr = 1 - b.t / b.max;
-        if (me && b.owner == me->idx) {
+        if (me && b.owner == me->idx && !me->third) {
             // own guns: a thick red streak from the screen edge that thins as it converges on the sight
             V3 cb, ct; cannonFrame(*me, b.sx, b.sy, cb, ct); V2 sc; float zc;
             if (!cam.proj(camPt(cam, ct), sc, zc)) continue;
@@ -1301,9 +1304,19 @@ static void setupCam(Player& p) {
     V3 pos = ppos(p);
     float sh = p.shake * G.cv.px * 0.05f; if (sh > 0) pos += V3(R.range(-sh, sh), R.range(-sh, sh), 0);
     float vfov = p.vp.w > p.vp.h * 2.5f ? 0.62f : 0.95f;
-    if (isSpace()) { p.cam.setBasis(pos, p.fwd, p.up, p.bank, p.vp, vfov); p.cam.fogNear = 1700; p.cam.fogFar = 3200; return; }
+    if (isSpace()) {
+        if (p.third) {   // chase camera: behind and above, looking past the ship
+            V3 cp = pos - p.fwd * (S_PLAYER * 5.5f) + p.up * (S_PLAYER * 1.4f), look = pos + p.fwd * (S_PLAYER * 12);
+            p.cam.setBasis(cp, look - cp, p.up, p.bank * 0.35f, p.vp, vfov);
+        } else p.cam.setBasis(pos, p.fwd, p.up, p.bank, p.vp, vfov);
+        p.cam.fogNear = 1700; p.cam.fogFar = 3200; return;
+    }
     float yaw = p.aim.x * (G.phase == PH_TRENCH ? 0.12f : 0.22f), pitch = p.aim.y * 0.15f + p.pitchExtra;
-    p.cam.set(pos, yaw, pitch, p.bank, p.vp, vfov);
+    if (p.third) {
+        float back = S_PLAYER * 5.5f, upz = S_PLAYER * 1.3f;
+        V3 cp = pos + V3(0, upz, -back); if (G.phase == PH_TRENCH) cp.y = std::min(cp.y, -1.5f);
+        p.cam.set(cp, yaw * 0.6f, pitch * 0.6f - 0.06f, p.bank * 0.35f, p.vp, vfov);
+    } else p.cam.set(pos, yaw, pitch, p.bank, p.vp, vfov);
 }
 static void renderGame(Canvas& cv) {
     std::vector<Player*> views; for (auto& q : G.pl) if (q.joined) views.push_back(&q);
@@ -1311,7 +1324,7 @@ static void renderGame(Canvas& cv) {
         setupCam(*p);
         LW = std::max(0.9f, p->vp.h / 1080.f * (p->vp.h < G.H * 0.75f ? 1.5f : 1.0f) * 1.6f);
         SDL_RenderSetClipRect(G.ren, &p->vp);
-        if (!p->down) { drawScene(cv, p->cam, p); if (G.phase != PH_TALLY && !(G.phase == PH_ESCAPE && G.citBoom)) { drawCannons(cv, *p); cv.flush(G.ren); } }
+        if (!p->down) { drawScene(cv, p->cam, p); if (!p->third && G.phase != PH_TALLY && !(G.phase == PH_ESCAPE && G.citBoom)) { drawCannons(cv, *p); cv.flush(G.ren); } }
         drawHud(cv, *p); cv.flush(G.ren);
     }
     if (views.size() == 3) {   // fourth quadrant: squad board
@@ -1374,7 +1387,7 @@ static void readDevs(float dt, bool inGame) {
             d.ml = (mb & SDL_BUTTON_LMASK) != 0;
             d.b[B_A] = k[SDL_SCANCODE_SPACE] || (!inGame && (k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_KP_ENTER])) || d.ml;
             d.b[B_B] = k[SDL_SCANCODE_BACKSPACE] || (!inGame && k[SDL_SCANCODE_ESCAPE]);
-            d.b[B_X] = k[SDL_SCANCODE_I]; d.b[B_Y] = k[SDL_SCANCODE_G];
+            d.b[B_X] = k[SDL_SCANCODE_I]; d.b[B_Y] = k[SDL_SCANCODE_G] || k[SDL_SCANCODE_V];
             d.b[B_START] = (inGame && k[SDL_SCANCODE_ESCAPE]) || k[SDL_SCANCODE_P] || (!inGame && (k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_KP_ENTER]));
             d.b[B_BACK] = k[SDL_SCANCODE_TAB];
             d.tr = k[SDL_SCANCODE_E] ? 1.f : 0.f; d.tl = k[SDL_SCANCODE_Q] ? 1.f : 0.f;
@@ -1515,7 +1528,7 @@ static void renderMenus(Canvas& cv) {
             "LEFT STICK - POINT THE SIGHT WHERE YOU WANT TO GO, THE SHIP TURNS TO IT",
             "A / B OR RB - FIRE (HOLD)    RT / LT - THROTTLE    ARROWS POINT TO TARGETS",
             "OPTIONS: INVERT STICK, TURN SPEED.  LOBBY: X INVERT   Y GYRO   LEFT/RIGHT LEVEL",
-            "GYRO: TILT TO AIM, L3 OR Y RECENTERS.   START - PAUSE",
+            "Y (KEYBOARD V) - COCKPIT / CHASE VIEW.  GYRO: L3 RECENTERS.  START - PAUSE",
             "KEYBOARD: ARROWS / WASD OR MOUSE, SPACE OR CLICK FIRE, E / Q THROTTLE, ESC",
         };
         int n = sizeof(lines) / sizeof(lines[0]);
@@ -1657,6 +1670,7 @@ static void testSetup() {
     if (s == "lobby") { G.state = ST_LOBBY; return; }
     startGame();
     if (getenv("VS_PHASE")) { std::string ph = getenv("VS_PHASE"); if (ph == "surface") beginPhase(PH_SURFACE); else if (ph == "trench") beginPhase(PH_TRENCH); else if (ph == "tally") beginPhase(PH_TALLY); else if (ph == "escape") beginPhase(PH_ESCAPE); }
+    if (getenv("VS_THIRD")) for (auto& p : G.pl) p.third = true;
     for (auto& p : G.pl) if (p.joined) setupCam(p);
     if (getenv("VS_ADVANCE")) {
         float secs = (float)atof(getenv("VS_ADVANCE")); float t = 0; int lastWave = G.wave;
