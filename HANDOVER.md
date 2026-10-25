@@ -1,9 +1,27 @@
-# Vector Strike — handover (24 Oct 2026)
+# Vector Strike — handover (25 Oct 2026)
 
 **Code lives on GitHub: `rosenauproductions/vector-strike` (private, branch main).** Cloud sessions: add_repo it and read CLAUDE.md + HANDOVER.md in the repo (HANDOVER.md there is the canonical copy of this doc). Pushed 24 Oct ~21:05 with full history.
 
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
+
+## v8 BETA (25 Oct, cloud session) — branch `claude/youthful-johnson-83rm5s`, binary `dist-beta/vectorstrike_beta.x86_64`
+Not deployed yet: copy the beta binary next to the main one (don't overwrite `vectorstrike.x86_64`) plus the whole `modelpack/` folder (new files).
+- **Models** (all rebuilt by `tools/build_modelpack.sh`): X-wing 3500 lines (was 1300, levelled 3.9 deg), TIE 3500 (was 1100), new Y-wing, B-wing, Millennium Falcon, Star Destroyer, trench tile. Every edge now carries its two face normals: lines whose faces both look away from the camera are not drawn, so ships read as solid (Chris's "fill them solid" idea, without a depth buffer).
+- **Cockpit view = the real ship**: you sit in the seat; the body is hidden and the outer wings are pushed forward/apart so the four real cannons sit in the screen corners (`cockpit.vsm` = full-detail outer wings, `--keep-x 0.58 --angle 8`). Lasers streak from the real muzzles onto the sight. Y/V now slides the camera out of the seat to the chase spot (one continuous zoom). The old drawn cannons remain only when there is no model pack.
+- **Three ships**, picked per player in the lobby with Up/Down (names on screen stay generic): STRIKE FIGHTER (X-wing, all-round), ASSAULT BOMBER (Y-wing: 1.5x hit size on towers/turrets/port, 0.87x steering), HEAVY BOMBER (B-wing: 1.9x hits, 0.75x steering, flies wing-vertical with the cockpit on top). Table `SHIPS[]` in main.cpp (eye, muzzles, cockpit warp, size).
+- **Space stage = the run in** (Chris: "a long run past Star Destroyers and TIE fighters to get to the Death Star"): the goal is the battle station from the start; its surface is 9000 + 1500 per wave (max 18000) ahead. A fleet of 2 + wave Star Destroyers (max 7) sits along the route, alternating sides just off the direct line, 70% nose away from the station (toward you), the rest broadside. Hulls are solid (shield hit + bounce), deck guns fire at anyone close, 75% of interceptors launch from the nearest Star Destroyer ahead; they keep coming until you're 1500 from the surface. Kills still score; the old "destroy N interceptors" gate is off.
+- **Scale** (Chris's numbers, X-wing 12.5 m = 11 units): Y-wing 16.2 m (1.3x), B-wing 16.9 m tall (1.35x), TIE about X-wing size, Falcon 34.75 m (15 units half-length), Star Destroyer 1.6 km (1408 units long). The battle station is radius 20000 (`ST_RADIUS`, test `VS_STR`) instead of the true ~70000: at true scale, from a few km out, it is only a flat horizon line on screen.
+- **Radar**: a 3D globe at the bottom middle of each view in space (Options -> RADAR ON/OFF, `radar=`): your frame, distance squashed, blips on stalks down to the equator (above/below). Red interceptors (white = the one on your tail), wingmates in their colours, Star Destroyers grey-white, freighter gold, station surface yellow.
+- **Freighter (Falcon) to the rescue**: once per wave, when someone is down to 2 shields, a wingmate is shot down, or a fighter has sat on a tail for 4 s, it arrives ("FREIGHTER INBOUND"), goes for tail-chasers first, and its kills count toward the wave.
+- **Trench**: twice as long (5600 + 560/wave; turrets and catwalks doubled to keep the density). Walls/floor use the panels from `death_star_trench_run.glb` (`tools/trench_tile.py` -> `trench.vsm`, a 146-unit tile repeated; far tiles get fewer lines, split-screen views fewer too, surface lines beyond the lip are skipped while you're inside). Options -> TRENCH DETAIL OFF/LOW/HIGH (`trench=` in the cfg) in case 4-player is slow on the box.
+- **Pull up out of the trench**: you can now climb ~9 units above the lip; while up there "TOO HIGH - SURFACE GUNS" flashes and guns on both sides fire at you, faster the longer you stay.
+- **Cinematic scaling** per viewport: far interceptors drawn up to 1.9x (hit spheres match), far wingmates 1.7x, your ship grows when the chase camera pulls back for a tail fight. Distant wingmates use fewer lines (4-player speed).
+- Perf (software GL in the cloud, 4 players 1080p): space cockpit ~29-46 fps depending on how much of the fleet is in view (v7: 39), chase ~36 (v7: 28), trench HIGH ~25 (v7: 44; set LOW/OFF if the box struggles). 1 player trench ~60.
+- Soak: 4 bots 1417 s reached wave 8, 1 bot to wave 4, no crashes; ports hit, freighter arrives.
+- New test switches: `VS_SHIP=0|1|2|9` (9 = mixed), `VS_SHOWENEMY=dist`, `VS_SHOWALLY=1`, `VS_PULLUP=1`, `VS_TAILTEST=1`, `VS_EYE=x,y,z`, `VS_WARP=y,z`, `VS_ZOOMTEST=0..1`, `VS_TRLINES=n`.
+- Bugs found and fixed in this session (all mine): a comment pasted mid-line had switched off the exhaust-port reset (trench never ended after wave 1), the Star Destroyer position and a trench setting. Worth a glance if anything acts oddly.
+- Open: try on the box (fps with trench HIGH at 4K/4 players, how the cockpit framing feels on the TV), Falcon in the trench (it only flies in space for now).
 
 ## v7 (24 Oct ~18:10)
 - Options: CHASE DISTANCE 1-10 (5 = default; 0.52x-1.6x of 5.5 ship-scales back, height scales too), saved as `chase=`. Tail-chase framing still pulls further back when needed.
@@ -63,7 +81,7 @@ Left stick moves the sight and steers (sight position = yoke position). Fire: A,
 `/userdata/system/logs/vectorstrike.log`: `pad:` lines (name, GUID, type, gyro yes/no), `renderer:`, `video:`, `game:` phase lines, hits, `fps:` every 30 s.
 
 ## Test switches
-`VS_STATE=title|help|options|lobby|game|icon|logo`, `VS_PLAYERS`, `VS_BOTS=1`, `VS_WAVE`, `VS_PHASE=surface|trench|escape|tally`, `VS_ADVANCE=secs`, `VS_SEED`, `VS_SHOT=frame` + `VS_SHOT_PATH`, `VS_FRAMES` (bench), `VS_WINDOW=WxH`, `VS_RES`, `VS_MUTE`, `VS_HOME`.
+`VS_STATE=title|help|options|lobby|game|icon|logo`, `VS_PLAYERS`, `VS_BOTS=1`, `VS_WAVE`, `VS_PHASE=surface|trench|escape|tally`, `VS_ADVANCE=secs`, `VS_SEED`, `VS_SHOT=frame` + `VS_SHOT_PATH`, `VS_FRAMES` (bench), `VS_WINDOW=WxH`, `VS_RES`, `VS_MUTE`, `VS_HOME`; v8 adds `VS_SHIP`, `VS_SHOWENEMY`, `VS_SHOWALLY`, `VS_PULLUP`, `VS_EYE`, `VS_WARP`, `VS_ZOOMTEST`, `VS_TRLINES`.
 
 ## Open / next
 - First box run: renderer, fps at 4K with 4 players, Switch Pro mapping and gyro direction.
