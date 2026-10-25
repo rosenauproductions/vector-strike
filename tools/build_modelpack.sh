@@ -12,3 +12,5 @@ python3 $C $A/y-wing.glb $M/ywing.vsm --matrix "$FLIP" --faces 12000 --max 3500 
 python3 $C $A/millennium_falcon.glb $M/falcon.vsm --matrix '[[-0.9461,0.324,0.0],[0.3212,0.9381,0.1298],[-0.0421,-0.1228,0.9915]]' --faces 14000 --max 4000 --angle 40   # levelled from its disc, mirrored so the cockpit is on the right
 python3 $C $A/star_destroyer.glb $M/destroyer.vsm --matrix "$FLIP" --faces 12000 --max 4000 --angle 35
 python3 tools/trench_tile.py $A/death_star_trench_run.glb $M/trench.vsm --strip 1.0 --minlen 0.5
+python3 $C $A/asf-01_b-wing_starfighter.glb $M/bwing.vsm --faces 12000 --max 3500 --angle 40
+python3 $C $A/asf-01_b-wing_starfighter.glb $M/bwing_ck.vsm --faces 40000 --max 99999 --angle 8 --keep-x 0.45   # heavy bomber cockpit: S-foils + cannons
