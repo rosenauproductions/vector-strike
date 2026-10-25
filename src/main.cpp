@@ -221,7 +221,7 @@ static const int STARTBONUS[3] = { 0, 40000, 100000 };
 static const float GROUND_Y = -40, TR_W = 22, TR_FLOOR = -42, TR_LIP_MAX = 9;   // TR_LIP_MAX: how far you can pull up out of the trench (top is y 0)
 static const int MAXSH = 6;
 
-struct Enemy { int kind = 0; V3 p, v; float hp = 1, cd = 1, t = 0, h = 0, flash = 0, weave = 0, hide = 0, tailT = 0, lostT = 0; int tgt = 0, state = 0, side = 0; bool dead = false, capDead = false;  bool ace = false; };
+struct Enemy { int kind = 0; V3 p, v; float hp = 1, cd = 1, t = 0, h = 0, flash = 0, weave = 0, hide = 0, tailT = 0, lostT = 0, passT = 3; int tgt = 0, state = 0, side = 0, pass = 0; bool dead = false, capDead = false;  bool ace = false; };
 struct Ball { V3 p, v; float life = 6, spin = 0; bool dead = false; };
 struct Bolt { V3 a, b; float t, max; Col c; int owner; int sx, sy; };
 struct Frag { V3 p, v, d; float life, max; Col c; };
@@ -538,7 +538,7 @@ static void playerFire(Player& p) {
     };
     for (int i = 0; i < (int)G.en.size(); i++) {
         Enemy& e = G.en[i]; if (e.dead) continue;
-        if (e.kind == EN_FIGHTER && e.state != 4) test(e.p, std::max(6.5f, S_ENEMY * (e.ace ? 1.25f : 1.1f)) * enemyVis(c.p, e.p), 1, i);
+        if ((e.kind == EN_FIGHTER || e.kind == EN_PURSUER) && e.state != 4) test(e.p, std::max(6.5f, S_ENEMY * (e.ace ? 1.25f : 1.1f)) * enemyVis(c.p, e.p), 1, i);
         else if (e.kind == EN_REACTOR) test(e.p, 30 * shipOf(p).bomb, 1, i);
         else if (e.kind == EN_TOWER && !e.capDead) test(e.p + V3(0, 3, 0), 7.5f * shipOf(p).bomb, 1, i);
         else if (e.kind == EN_TURRET) test(e.p, 5.5f * shipOf(p).bomb, 1, i);
@@ -568,7 +568,8 @@ static void playerFire(Player& p) {
             Player& sv = G.pl[e.tgt]; p.score += 500; pmsg(p, "SAVED P" + std::to_string(sv.idx + 1) + "  +500"); pmsg(sv, "P" + std::to_string(p.idx + 1) + " SAVED YOU");
             printf("game: P%d shot the fighter off P%d's tail\n", p.idx + 1, sv.idx + 1);
         }
-        if (e.kind == EN_FIGHTER) { e.dead = true; G.killsDone++; p.kills++; p.score += 1000; explode3(e.p, 5, C_ENEMY, V3(0, 0, G.speed)); AU.play(SND_BOOM_S, 0.75f); }
+        if (e.kind == EN_PURSUER) { printf("game: P%d shot a pursuer\n", p.idx + 1); e.dead = true; p.kills++; p.score += 1000; explode3(e.p, 5, C_ENEMY, V3(0, 0, G.speed)); AU.play(SND_BOOM_S, 0.75f); }
+        else if (e.kind == EN_FIGHTER) { e.dead = true; G.killsDone++; p.kills++; p.score += 1000; explode3(e.p, 5, C_ENEMY, V3(0, 0, G.speed)); AU.play(SND_BOOM_S, 0.75f); }
         else if (e.kind == EN_TOWER) { e.capDead = true; p.kills++; p.score += 250; explode3(e.p + V3(0, 3, 0), 5, C_TOWER, V3(0, 0, 0)); AU.play(SND_TOWER, 0.7f); }
         else { e.dead = true; p.kills++; p.score += 300; explode3(e.p, 4, C_CAT); AU.play(SND_BOOM_S, 0.6f); }
     } else if (type == 4) {
@@ -706,7 +707,7 @@ static void updateFighters(float dt) {
         V3 cur = norm3(e.v); float d = len3(tp - e.p); float espd = spd * (e.ace ? 1.18f : 1.f);
         const float am = e.ace ? 1.4f : 1.f;   // the ace turns and shoots better and won't give up a tail
         // got behind its target? latch on to the tail
-        if (ei < 0 && e.state == 0 && d < 380 && dot3(e.p - tp, T.fwd) < -40 && !T.down) { e.state = 3; e.tailT = 0; e.lostT = 0; e.cd = std::max(e.cd, 0.8f); }
+        if (ei < 0 && e.state == 0 && d < 380 && dot3(e.p - tp, T.fwd) < -40 && !T.down) { e.state = 3; e.tailT = 0; e.lostT = 0; e.cd = std::max(e.cd, 0.8f); e.passT = e.ace ? R.range(3.5f, 6.f) : R.range(1.8f, 3.8f); }
         if (e.state == 3) {   // tailing: sit ~110 behind and shoot; hard turns or braking shake it off
             e.tailT += dt;
             V3 want = norm3(tp - T.fwd * 75 - e.p);
@@ -717,10 +718,35 @@ static void updateFighters(float dt) {
             if (ang > 0.87f) e.lostT += dt / am; else e.lostT = std::max(0.f, e.lostT - dt * 0.5f);
             T.tailNow = true; T.tailDist = d;
             if (e.cd <= 0 && d < 420 && ang < 0.3f) { e.cd = std::max(0.9f, 2.0f - 0.08f * G.wave) * R.range(0.8f, 1.2f) / am; turretShot(e) || (fireBall(e.p + cur * 7, e.tgt, e.ace ? 1.25f : 1.f), true); }
+            e.passT -= dt;
+            if (e.passT <= 0 && d < 220 && !T.down) {   // it gets impatient and powers past you: a shot for you
+                e.state = 5; e.pass = 0; e.hide = 4.0f; e.side = R.f() < 0.5f ? -1 : 1;
+                AU.play(SND_TIEFLY, 1.0f, R.range(-0.3f, 0.3f), R.range(1.0f, 1.15f), 250);
+                printf("game: P%d's tail is overtaking\n", T.idx + 1);
+            }
             bool overshoot = dot3(e.p - tp, T.fwd) > 0 && d < 60;
-            if (e.lostT > 1.0f || overshoot || e.tailT > (e.ace ? 20 : 12) || T.down) {
+            if (e.state == 5) {}
+            else if (e.lostT > 1.0f || overshoot || e.tailT > (e.ace ? 20 : 12) || T.down) {
                 if (!T.down && e.tailT <= 12) { if (overshoot) pmsg(T, "IT OVERSHOT - NOW GET IT"); else { pmsg(T, "SHAKEN OFF  +250"); T.score += 250; } }
                 e.state = 1; e.hide = R.range(1.5f, 2.5f); AU.play(SND_TIEFLY, 0.8f, R.range(-0.4f, 0.4f), R.range(0.9f, 1.1f), 250);
+            }
+        } else if (e.state == 5) {   // overtaking: surge past, then sit out in front of the target, jinking, before breaking off
+            V3 rt = norm3(cross3(T.up, T.fwd)), up = cross3(T.fwd, rt);
+            float jk = e.ace ? 1.8f : 1.f, ahead = dot3(e.p - tp, T.fwd);
+            V3 spot = tp + T.fwd * 85 + rt * (e.side * 16 + std::sin(e.t * 1.9f + e.weave) * 13 * jk) + up * (5 + std::cos(e.t * 1.4f + e.weave) * 8 * jk);
+            V3 want = norm3(spot + T.fwd * 60 - e.p);   // look a little past the spot so it settles in line with you
+            cur = norm3(cur + (want - cur) * std::min(1.f, dt * 3.2f * am));
+            e.hide -= dt;
+            if (e.pass == 0) {   // the overtake
+                if (ahead < 20) T.tailNow = true, T.tailDist = d;   // keep the chase view while it goes by
+                espd = clampf(T.speed + 95 + std::max(0.f, -ahead) * 0.6f, 60, 380);
+                if (ahead > 45) { e.pass = 1; T.tailHold = 0; e.hide = e.ace ? R.range(1.8f, 2.6f) : R.range(2.4f, 3.4f); pmsg(T, e.ace ? "VADER OVERSHOT - GET HIM" : "IT OVERSHOT - NOW GET IT"); }
+            } else {             // out in front: hold the gap (your speed, nudged toward the spot)
+                espd = clampf(T.speed + dot3(spot - e.p, T.fwd) * 1.1f, 30, 360);
+            }
+            if (e.hide <= 0 || T.down || d > 600) {
+                e.state = 1; e.hide = R.range(1.5f, 2.5f); cur = norm3(cur + rndDir() * 0.7f + (e.side ? rt * (float)e.side : V3()) * 0.6f);
+                AU.play(SND_TIEFLY, 0.8f, R.range(-0.4f, 0.4f), R.range(0.9f, 1.1f), 250);
             }
         } else if (e.state == 0) {   // attack run: chase a point ahead of the target, weaving
             V3 aimp = tp + tv * 0.5f + V3(std::sin(e.t * 1.3f + e.weave) * 35, std::cos(e.t * 1.1f + e.weave) * 25, std::sin(e.t * 0.8f + e.weave) * 35);

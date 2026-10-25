@@ -5,6 +5,12 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v17 BETA (cloud session) — tailing fighters overtake you (`dist-beta/vectorstrike_beta.x86_64`, md5 6814f26a...)
+Not deployed yet; no model changes.
+- Open space: a fighter that latches on to your tail now powers past you after 1.8-3.8 s (Vader 3.5-6 s), new state 5 in `updateFighters`. It surges by on one side (the chase view stays on while it goes past), then sits about 85 ahead of you for 2.4-3.4 s (Vader 1.8-2.6 s, jinking harder), matching your speed with a gentle weave so you can line it up. "IT OVERSHOT - NOW GET IT" / "VADER OVERSHOT - GET HIM". The red tail warning clears as soon as it is in front. Then it breaks away and comes round again. In a 4-bot soak, 68 of 86 tails ended with an overtake.
+- Trench and tunnel pursuers: every 5-8 s one of them (Vader included) surges about 55 ahead of you for ~2.5 s, holding fire while it is in front, then drops back. Pursuers can now be shot (1000 each). Vader there has 10 + 2 x wave hit points instead of being untouchable; knock them off and he spins out of the trench (+3000).
+- Log lines: `P1's tail is overtaking`, `pursuer (ace) surges ahead of P1`, `P1 shot a pursuer`.
+
 ## v16 BETA (cloud session) — staggered ship positions in multiplayer (`dist-beta/vectorstrike_beta.x86_64`, md5 4dd73f9c...)
 Not deployed yet; no model changes.
 - With 2-4 players the autopilot (bots, and humans on ON RAILS) no longer flies everyone into the same spot: `formationAdjust()` (main.cpp, run after `botThink`) gives each player a formation slot round the squad's middle (P1 high-left, P2 high-right, P3 low-left, P4 low-right) on the surface / trench / tunnel / Star Fox rails, and in open space, the asteroids and Ice Planet steers off any wingmate closer than 80 (45 on the ice planet).
@@ -93,7 +99,7 @@ Code for the new parts is in `src/levels.h` (included once from main.cpp). The g
 - Options: CHASE DISTANCE 1-10 (5 = default; 0.52x-1.6x of 5.5 ship-scales back, height scales too), saved as `chase=`. Tail-chase framing still pulls further back when needed.
 
 ## v6 (24 Oct ~18:10)
-- **Enemy on your tail**: an interceptor that gets within 380 behind its target (or spawns there: 20% of spawns sneak in 520-750 behind someone) latches on (state 3): sits ~110 behind, matches speed, fires when lined up. Your view auto-switches to the chase camera, which pulls back to frame both ships (back = tail distance + 40, up to 300); red "ENEMY ON YOUR TAIL" warning + alarm. Ways out: turn hard (its tail turn rate 1.05 rad/s < yours; more than 50° off for 1 s = shaken off, +250), brake so it overshoots ("IT OVERSHOT - NOW GET IT"), or a wingmate shoots it ("SAVED Px +500" / "Px SAVED YOU"). Wingmates see a blinking ring + "HELP Px" arrow on the tailed player. Tails give up after 12 s. View returns to your own setting 1.2 s after the tail ends. Test hook `VS_TAILTEST=1`.
+- **Enemy on your tail** (v17: it now overtakes you after a few seconds, see v17): an interceptor that gets within 380 behind its target (or spawns there: 20% of spawns sneak in 520-750 behind someone) latches on (state 3): sits ~110 behind, matches speed, fires when lined up. Your view auto-switches to the chase camera, which pulls back to frame both ships (back = tail distance + 40, up to 300); red "ENEMY ON YOUR TAIL" warning + alarm. Ways out: turn hard (its tail turn rate 1.05 rad/s < yours; more than 50° off for 1 s = shaken off, +250), brake so it overshoots ("IT OVERSHOT - NOW GET IT"), or a wingmate shoots it ("SAVED Px +500" / "Px SAVED YOU"). Wingmates see a blinking ring + "HELP Px" arrow on the tailed player. Tails give up after 12 s. View returns to your own setting 1.2 s after the tail ends. Test hook `VS_TAILTEST=1`.
 - Deployed md5 see below.
 
 ## v5 (24 Oct ~17:35)

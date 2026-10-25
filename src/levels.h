@@ -46,7 +46,7 @@ static void spawnPursuers(bool withAce, int n) {
     for (int i = 0; i < n + (withAce ? 1 : 0); i++) {
         Enemy e; e.kind = EN_PURSUER; e.ace = withAce && i == 0 && !PK_ACE.v.empty(); e.tgt = randomAlive();
         Player& T = G.pl[e.tgt]; e.h = 38 + 16.f * k++; e.side = (i % 2) ? 1 : -1;
-        e.p = V3(T.x, T.y + 20, G.z + T.zoff - 600 - 80.f * i); e.cd = R.range(1.5f, 2.5f); e.hp = e.ace ? 99 : 1;
+        e.p = V3(T.x, T.y + 20, G.z + T.zoff - 600 - 80.f * i); e.cd = R.range(1.5f, 2.5f); e.hp = e.ace ? 10.f + 2.f * G.wave : 1.f; e.passT = R.range(2.5f, 5.f) + 1.5f * i;
         G.en.push_back(e);
     }
     AU.play(SND_TIEFLY, 1.0f, 0, 0.8f, 900); AU.play(SND_ALARM, 0.6f, 0, 1.0f, 700);
@@ -62,12 +62,22 @@ static void updatePursuers(float dt) {
         }
         if (!G.pl[e.tgt].joined || G.pl[e.tgt].down) e.tgt = randomAlive();
         Player& T = G.pl[e.tgt];
-        V3 want(T.x + e.side * (e.ace ? 0.f : 7.f), T.y + 2, G.z + T.zoff - e.h);
+        // every few seconds one surges past and hangs out in front of you for a moment: shoot it
+        e.passT -= dt;
+        if (e.state == 0 && e.passT <= 0 && e.p.z > G.z + T.zoff - e.h - 30) { e.state = 5; e.hide = e.ace ? 2.0f : 2.6f; AU.play(SND_TIEFLY, 0.9f, e.side * 0.3f, 1.1f, 250); printf("game: pursuer%s surges ahead of P%d\n", e.ace ? " (ace)" : "", T.idx + 1); }
+        if (e.state == 5) {
+            e.hide -= dt;
+            if (e.hide <= 0) { e.state = 0; e.passT = R.range(5.f, 8.f); }
+        }
+        bool ahead = e.state == 5;
+        float wx = ahead ? e.side * 9.f + std::sin(e.t * 2.1f) * 4 : e.side * (e.ace ? 0.f : 7.f);
+        V3 want(T.x + wx, T.y + (ahead ? 4.f : 2.f), G.z + T.zoff + (ahead ? 55.f : -e.h));
+        if (ahead && e.p.z > G.z + T.zoff + 30 && e.hide > 1.6f) pmsg(T, e.ace ? "VADER OVERSHOT - GET HIM" : "IT OVERSHOT - NOW GET IT");
         float lag = e.ace ? 2.2f : 1.2f;   // the ace flies your exact line; his wingmen lag (and can clip catwalks / girders)
         e.p.x += (want.x - e.p.x) * std::min(1.f, dt * lag); e.p.y += (want.y - e.p.y) * std::min(1.f, dt * lag);
-        e.p.z += G.speed * dt + (want.z - e.p.z) * std::min(1.f, dt * 0.8f);   // keep pace with the run, then close in
+        e.p.z += G.speed * dt + (want.z - e.p.z) * std::min(1.f, dt * (ahead ? 1.7f : 0.8f));   // keep pace with the run, then close in
         e.v = V3(0, 0, G.speed);
-        if (e.cd <= 0 && e.p.z > want.z - 60 && aliveCount() > 0) {
+        if (!ahead && e.cd <= 0 && e.p.z > want.z - 60 && aliveCount() > 0) {
             e.cd = (e.ace ? 1.7f : 2.8f) * R.range(0.8f, 1.25f) * std::max(0.55f, 1 - 0.05f * G.wave);
             V3 miss = e.ace ? V3() : V3(R.range(-9, 9), R.range(-7, 7), 0);   // the wingmen spray, the ace is precise
             fireBall(e.p + V3(0, 0, 6), e.tgt, e.ace ? 1.5f : 1.25f, miss);
