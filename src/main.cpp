@@ -70,7 +70,7 @@ static void blob3(Canvas& cv, const Cam& cam, V3 p, float r, Col c, float minPx 
 
 // ---------------------------------------------------------------- models
 struct Model { std::vector<V3> v; std::vector<int> e; bool sorted = false; void E(std::initializer_list<int> l) { for (int x : l) e.push_back(x); } };
-static Model M_FIGHTER, M_SHIP, M_CITADEL, M_TURRET, PK_PLAYER, PK_ENEMY, PK_STATION, PK_COCKPIT, PK_YWING, PK_FALCON;   // PK_COCKPIT: full-detail outer wings + cannons for the cockpit view
+static Model M_FIGHTER, M_SHIP, M_CITADEL, M_TURRET, PK_PLAYER, PK_ENEMY, PK_STATION, PK_COCKPIT, PK_YWING, PK_FALCON, PK_DESTROYER;   // PK_COCKPIT: full-detail outer wings + cannons for the cockpit view
 static Model* MP = &M_SHIP; static Model* ME = &M_FIGHTER; static Model* MS = &M_CITADEL;
 static float S_PLAYER = 0.9f, S_ENEMY = 2.5f, S_STATION = 0.75f;   // draw scales (station: times its radius)
 // .vsm wireframe from tools/glb2vsm.py: 'v x y z' and 'e a b' lines, longest half-extent 1, +z forward, +y up
@@ -156,8 +156,8 @@ static void drawModel(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 fw,
 struct Player;
 struct Ship { const char* name; Model* m; Model* ck; float k; V3 eye; V3 muz[4]; float bodyHalf, warpY, warpZ, hideR; };
 static Ship SHIPS[2] = {
-    { "X-WING", &PK_PLAYER, &PK_COCKPIT, 1.0f, V3(-0.044f, 0.0f, -0.35f), { V3(-0.852f, -0.17f, 0.373f), V3(-0.918f, 0.195f, 0.371f), V3(0.829f, -0.186f, 0.337f), V3(0.765f, 0.198f, 0.314f) }, 0.58f, 0.12f, 0.75f, 0 },
-    { "Y-WING", &PK_YWING, nullptr, 1.15f, V3(0.0f, 0.1f, 0.33f), { V3(-0.03f, 0.02f, 0.72f), V3(-0.03f, 0.03f, 0.72f), V3(0.03f, 0.02f, 0.72f), V3(0.03f, 0.03f, 0.72f) }, 0, 0, 0, 0.12f },
+    { "STRIKE FIGHTER", &PK_PLAYER, &PK_COCKPIT, 1.0f, V3(-0.044f, 0.0f, -0.35f), { V3(-0.852f, -0.17f, 0.373f), V3(-0.918f, 0.195f, 0.371f), V3(0.829f, -0.186f, 0.337f), V3(0.765f, 0.198f, 0.314f) }, 0.58f, 0.12f, 0.75f, 0 },
+    { "ASSAULT BOMBER", &PK_YWING, nullptr, 1.15f, V3(0.0f, 0.1f, 0.33f), { V3(-0.03f, 0.02f, 0.72f), V3(-0.03f, 0.03f, 0.72f), V3(0.03f, 0.02f, 0.72f), V3(0.03f, 0.03f, 0.72f) }, 0, 0, 0, 0.12f },
 };
 static int NSHIPS = 1;   // ships whose model loaded (the X-wing is always first)
 static const Ship& shipOf(const Player& p);
@@ -233,6 +233,9 @@ struct Game {
     std::string banner, banner2; float bannerT = 0;
     std::vector<Enemy> en; std::vector<Ball> balls; std::vector<Bolt> bolts; std::vector<Frag> frags; std::vector<Flash> flashes; std::vector<Catwalk> cat; std::vector<Star> stars;
     std::vector<V3> sky;
+    // space-stage extras from the model pack: a capital ship to fight around, and an allied freighter
+    struct Capital { bool on = false; V3 p, f, r, u; float L = 700, gunCd = 2; } cap;
+    struct Ally { bool on = false; float joinT = 0; V3 p, v; float cd = 1, t = 0; int tgt = -1; bool shown = false; } ally;
     bool paused = false; int pauseSel = 0; bool over = false; float overT = 0; int overSel = 0; bool newBest = false;
     int tallyBonus[4] = {}; bool quit = false;
     int shotFrame = -1; std::string shotPath = "shot.bmp"; bool bots = false; int frame = 0;
@@ -296,6 +299,10 @@ static V3 pvel(const Player& p) { return isSpace() ? p.fwd * p.speed : V3(0, 0, 
 static V3 squadCenter() { V3 c; int n = 0; for (auto& p : G.pl) if (p.joined && !p.down) { c += ppos(p); n++; } return n ? c * (1.f / n) : V3(); }
 static int randomAlive() { std::vector<int> v; for (int i = 0; i < 4; i++) if (G.pl[i].joined && !G.pl[i].down) v.push_back(i); return v.empty() ? 0 : v[R.i((int)v.size())]; }
 static const Ship& shipOf(const Player& p) { return SHIPS[std::min(p.ship, NSHIPS - 1)]; }
+// cinematic scale, per camera: far ships are drawn bigger so they still read on screen (hit spheres grow the same,
+// so what you see is what you can hit); 1 up close
+static float visScale(V3 camP, V3 at, float from, float range, float extra) { return 1 + clampf((len3(at - camP) - from) / range, 0, 1) * extra; }
+static float enemyVis(V3 camP, V3 at) { return isSpace() ? visScale(camP, at, 250, 1000, 0.9f) : visScale(camP, at, 200, 600, 0.5f); }
 static float waveMul() { return 1 + 0.12f * (G.wave - 1); }
 
 static void fireBall(V3 from, int tgt, float spdMul = 1) {
@@ -338,6 +345,13 @@ static void beginPhase(int ph) {
     case PH_SPACE: {
         G.speed = 0; G.killsDone = 0; G.killsNeeded = (int)((5 + 2 * G.wave) * (1 + 0.45f * (np - 1))); G.spawnT = 1.0f; G.citBoom = false; G.approach = false;
         G.stC = V3(0, 0, 7500); G.stR = 1400;
+        G.cap = Game::Capital(); G.ally = Game::Ally();
+        if (!PK_DESTROYER.v.empty()) {   // capital ship parked off the route to the station, nose angled across it
+            float sd = (G.wave & 1) ? 1.f : -1.f;
+            G.cap.on = true; G.cap.L = 720; G.cap.p = V3(sd * 1150, -260, 3300); G.cap.f = norm3(V3(-sd * 0.35f, 0.04f, 1));
+            G.cap.r = norm3(cross3(V3(0, 1, 0), G.cap.f)); G.cap.u = cross3(G.cap.f, G.cap.r); G.cap.gunCd = 3;
+        }
+        if (!PK_FALCON.v.empty()) { G.ally.on = true; G.ally.joinT = 7; G.ally.p = V3(-90, 40, -650); G.ally.v = V3(0, 0, 170); }
         placeFormation(10);
         for (auto& p : G.pl) if (p.joined) { p.pos = V3(p.x * 5, p.y * 5, p.zoff * 4); p.fwd = V3(0, 0, 1); p.up = V3(0, 1, 0); p.speed = 110; }
         char b[64]; snprintf(b, sizeof b, "DESTROY %d INTERCEPTORS", G.killsNeeded);
@@ -439,7 +453,7 @@ static void playerFire(Player& p) {
     };
     for (int i = 0; i < (int)G.en.size(); i++) {
         Enemy& e = G.en[i]; if (e.dead) continue;
-        if (e.kind == EN_FIGHTER) test(e.p, std::max(6.5f, S_ENEMY * 1.1f), 1, i);
+        if (e.kind == EN_FIGHTER) test(e.p, std::max(6.5f, S_ENEMY * 1.1f) * enemyVis(c.p, e.p), 1, i);
         else if (e.kind == EN_TOWER && !e.capDead) test(e.p + V3(0, 3, 0), 7.5f, 1, i);
         else if (e.kind == EN_TURRET) test(e.p, 5.5f, 1, i);
     }
@@ -480,9 +494,65 @@ static void playerFire(Player& p) {
 }
 
 // ---------------------------------------------------------------- simulation
+// capital ship hull test: a flat wedge (nose +z) plus the bridge tower at the back, in model units
+static bool capInside(V3 w, float margin) {
+    if (!G.cap.on) return false;
+    V3 d = w - G.cap.p; float L = G.cap.L; V3 q(dot3(d, G.cap.r) / L, dot3(d, G.cap.u) / L, dot3(d, G.cap.f) / L); float m = margin / L;
+    if (q.z < -1 - m || q.z > 1 + m) return false;
+    float hw = 0.557f * (1 - q.z) * 0.5f + m;
+    if (std::fabs(q.x) < hw && q.y > -0.24f - m && q.y < 0.07f + m) return true;
+    return q.z < -0.55f && std::fabs(q.x) < 0.22f + m && q.y > -0.24f && q.y < 0.28f + m;
+}
+static V3 capSurfacePt() {   // a random gun spot on the top deck
+    float z = R.range(-0.9f, 0.6f), hw = 0.557f * (1 - z) * 0.5f;
+    V3 q(R.range(-hw, hw) * 0.85f, 0.07f, z); return G.cap.p + (G.cap.r * q.x + G.cap.u * q.y + G.cap.f * q.z) * G.cap.L;
+}
+static void updateCapital(float dt) {
+    if (!G.cap.on) return;
+    G.cap.p += G.cap.f * (6 * dt);
+    for (auto& p : G.pl) if (p.joined && !p.down && capInside(p.pos, 6)) {   // flew into the hull: bounce off the plating
+        hitPlayer(p, "capital ship"); V3 n = G.cap.u * (dot3(p.pos - G.cap.p, G.cap.u) > -0.08f * G.cap.L ? 1.f : -1.f);
+        p.pos += n * 30; p.fwd = norm3(p.fwd + n * 1.2f);
+    }
+    G.cap.gunCd -= dt;   // deck guns fire at anyone flying close
+    if (G.cap.gunCd <= 0) {
+        G.cap.gunCd = std::max(0.5f, 1.6f - 0.08f * G.wave) * R.range(0.7f, 1.3f);
+        int best = -1; float bd = 900;
+        for (auto& p : G.pl) if (p.joined && !p.down) { float d = len3(p.pos - G.cap.p) - G.cap.L * 0.6f; if (d < bd) { bd = d; best = p.idx; } }
+        if (best >= 0) { V3 m = capSurfacePt(); G.flashes.push_back({ m, 0.2f, 0.2f, 9, C_ENEMY, false }); fireBall(m, best, 0.85f); }
+    }
+}
+// allied freighter: joins a few seconds in, hunts interceptors and helps clear the wave
+static void updateAlly(float dt) {
+    auto& A = G.ally; if (!A.on) return;
+    if (A.joinT > 0) { A.joinT -= dt; if (A.joinT <= 0) { A.shown = true; setBanner("FREIGHTER JOINS THE FIGHT", "FRIENDLY - DON'T SHOOT IT"); A.p = squadCenter() - V3(0, -40, 500); A.v = V3(0, 0, 190); } return; }
+    A.t += dt; A.cd -= dt;
+    if (A.tgt < 0 || A.tgt >= (int)G.en.size() || G.en[A.tgt].dead || G.en[A.tgt].kind != EN_FIGHTER) {
+        A.tgt = -1; float bd = 1e9;
+        for (int i = 0; i < (int)G.en.size(); i++) { auto& e = G.en[i]; if (e.dead || e.kind != EN_FIGHTER) continue; float d = len3(e.p - A.p); if (d < bd) { bd = d; A.tgt = i; } }
+    }
+    V3 want = A.tgt >= 0 ? G.en[A.tgt].p + G.en[A.tgt].v * 0.6f : squadCenter() + V3(std::sin(A.t * 0.4f) * 260, 70, 280);
+    if (len3(want - A.p) < 160 && A.tgt >= 0) want = A.p + norm3(A.v) * 400 + V3(0, 160, 0);   // overshoot, come round again
+    V3 cur = norm3(A.v), wd = norm3(want - A.p);
+    if (G.cap.on && capInside(A.p + cur * 150, 60)) wd = norm3(wd + G.cap.u * 2);
+    cur = norm3(cur + (wd - cur) * std::min(1.f, dt * 1.2f));
+    A.v = cur * 175; A.p += A.v * dt;
+    if (A.tgt >= 0 && A.cd <= 0) {
+        Enemy& e = G.en[A.tgt]; V3 to = e.p - A.p; float d = len3(to);
+        if (d < 650 && dot3(norm3(to), cur) > 0.93f) {
+            A.cd = R.range(0.35f, 0.6f);
+            V3 gun = A.p + G.ally.v * 0.02f + V3(0, 3, 0);
+            G.bolts.push_back({ gun, e.p, 0.22f, 0.22f, Col(255, 120, 70), 9, 0, 0 });
+            if (R.f() < 0.3f) { e.dead = true; G.killsDone++; explode3(e.p, 5, C_ENEMY, e.v * 0.5f); AU.play(SND_BOOM_S, 0.5f); printf("game: freighter shot down a fighter\n"); }
+        }
+    }
+}
 static void spawnFighterNear(Enemy& e) {
     V3 sc = squadCenter(); V3 toSt = norm3(G.stC - sc); V3 d = norm3(toSt * 1.1f + rndDir());
     e.p = sc + d * R.range(850, 1150); e.v = norm3(sc - e.p) * 130; e.tgt = randomAlive(); e.state = 0; e.t = R.range(0, 5); e.tailT = e.lostT = 0;
+    if (G.cap.on && R.f() < 0.3f && G.phase == PH_SPACE) {   // launch from the capital ship's belly
+        e.p = G.cap.p - G.cap.u * (0.26f * G.cap.L) + G.cap.f * (R.range(-0.5f, 0.2f) * G.cap.L); e.v = norm3(sc - e.p) * 130; return;
+    }
     if (R.f() < 0.2f && G.phase == PH_SPACE) {   // sneak in from behind someone
         Player& T = G.pl[e.tgt]; e.p = T.pos - T.fwd * R.range(520, 750) + rndDir() * 60; e.v = T.fwd * 140;
     }
@@ -532,6 +602,7 @@ static void updateFighters(float dt) {
             e.hide -= dt; if (e.hide <= 0) { e.state = 0; e.tgt = randomAlive(); }
         }
         V3 ds = e.p - G.stC; float dsl = len3(ds); if (dsl < G.stR * 1.12f) cur = norm3(cur + ds * (1 / dsl) * (dt * 4));   // stay off the station
+        if (G.cap.on && capInside(e.p + cur * 90, 40)) cur = norm3(cur + G.cap.u * (dt * 6));   // pull up over the capital ship
         e.v = cur * espd; e.p += e.v * dt;
         if (len3(e.p - sc) > 2600) spawnFighterNear(e);
     }
@@ -700,7 +771,7 @@ static void stepGame(float dt) {
     if (!G.over) for (auto& p : G.pl) if (p.joined) updatePlayer(p, dt);
     switch (G.phase) {
     case PH_SPACE:
-        updateFighters(dt);
+        updateFighters(dt); updateCapital(dt); updateAlly(dt);
         if (G.killsDone >= G.killsNeeded && !G.approach) { bool any = false; for (auto& e : G.en) if (!e.dead && e.kind == EN_FIGHTER) any = true; if (!any && G.phaseT > 2) { G.approach = true; setBanner("ATTACK THE BATTLE STATION", "FOLLOW THE YELLOW ARROW"); } }
         if (G.approach) for (auto& p : G.pl) if (p.joined && !p.down && len3(p.pos - G.stC) < G.stR + 700) { printf("game: P%d reached the station\n", p.idx + 1); if (G.wave >= 2) beginPhase(PH_SURFACE); else beginPhase(PH_TRENCH); break; }
         break;
@@ -896,6 +967,8 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
     if (space) {
         drawStars3(cv, cam, me ? pvel(*me) : V3());
         if (!G.citBoom) drawCitadel(cv, cam, G.stC, G.stR * S_STATION, 1);
+        if (G.cap.on && G.phase == PH_SPACE) { Cam far = cam; far.fogNear = 2600; far.fogFar = 5200; drawModelRU(cv, far, PK_DESTROYER, G.cap.p, G.cap.f, G.cap.r, G.cap.u, G.cap.L, Col(170, 185, 215), 1.2f, 0.6f); }
+        if (G.ally.on && G.ally.shown && G.phase == PH_SPACE) { V3 f = norm3(G.ally.v), r = norm3(cross3(V3(0, 1, 0), f)), u = cross3(f, r); drawModelRU(cv, cam, PK_FALCON, G.ally.p, f, r, u, 15, Col(255, 225, 160), 1.3f, 1); }
     } else if (G.phase == PH_SURFACE) {
         drawSurface(cv, cam, G.z);
         float zt = G.zStart + G.surfLen + 250;   // trench entrance ahead
@@ -907,7 +980,7 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
     cv.flush(G.ren);
     for (auto& e : G.en) {
         Col c = e.flash > 0 ? C_WHITE : C_ENEMY;
-        if (e.kind == EN_FIGHTER) { V3 v = len3(e.v) > 1 ? e.v : V3(0, 0, -1); drawModel(cv, cam, *ME, e.p, v, std::sin(e.t * 2 + e.weave) * 0.6f, S_ENEMY, c, 1.4f); }
+        if (e.kind == EN_FIGHTER) { V3 v = len3(e.v) > 1 ? e.v : V3(0, 0, -1); drawModel(cv, cam, *ME, e.p, v, std::sin(e.t * 2 + e.weave) * 0.6f, S_ENEMY * enemyVis(cam.p, e.p), c, 1.4f); }
         else if (e.kind == EN_TOWER) {
             Col tc = e.capDead ? withA(C_TOWER, 0.45f) : C_TOWER;
             box3(cv, cam, V3(e.p.x - 5, GROUND_Y, e.p.z - 5), V3(e.p.x + 5, e.p.y, e.p.z + 5), tc, 1.2f);
@@ -925,6 +998,8 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
         if (own && !modelCockpit(o) && !viewThird(*me)) continue;   // built-in ship: the drawn cannons stand in for it
         if (own) ownFrame(o, sp, sf, sr, su); else shipFrame(o, sp, sf, sr, su);
         const Ship& sh = shipOf(o); float S = S_PLAYER * sh.k; const Model& M = modelCockpit(o) ? *sh.m : *MP; if (!modelCockpit(o)) S = S_PLAYER;
+        if (!own) S *= visScale(cam.p, ppos(o), 150, 900, 0.7f);   // far-off wingmates read bigger
+        else if (isSpace() && o.zoom > 0.99f) { float base = S_PLAYER * 5.5f * chaseMul(); S *= std::sqrt(clampf(o.camBack / base, 1, 4)); }   // pulled way back for a tail fight: keep your ship readable
         if (own && modelCockpit(o) && o.zoom < 0.999f) {   // cockpit (or zooming out of it): warped wings, body faded out
             float in2 = 1 - clampf(o.zoom, 0, 1); in2 = in2 * in2 * (3 - 2 * in2);
             Col cc = withA(mixc(o.col, Col(150, 165, 195), 0.35f * in2), 1 - 0.35f * in2);
@@ -1511,6 +1586,7 @@ static void testSetup() {
     if (getenv("VS_PHASE")) { std::string ph = getenv("VS_PHASE"); if (ph == "surface") beginPhase(PH_SURFACE); else if (ph == "trench") beginPhase(PH_TRENCH); else if (ph == "tally") beginPhase(PH_TALLY); else if (ph == "escape") beginPhase(PH_ESCAPE); }
     if (getenv("VS_THIRD")) for (auto& p : G.pl) p.third = true;
     if (getenv("VS_SHIP")) { int k = atoi(getenv("VS_SHIP")); for (auto& p : G.pl) p.ship = k == 2 ? (p.idx & 1) : k; }   // test: 0 X-wing, 1 Y-wing, 2 mixed
+    if (getenv("VS_SHOWALLY") && G.ally.on) { G.ally.joinT = 0; G.ally.shown = true; G.ally.p = G.pl[0].pos + G.pl[0].fwd * 90 + V3(25, 8, 0); G.ally.v = V3(0.6f, 0, 0.8f) * 175; }   // test: freighter parked ahead of P1
     if (getenv("VS_SHOWENEMY")) { Enemy e; e.kind = EN_FIGHTER; e.tgt = 0; e.state = 2; float d = (float)atof(getenv("VS_SHOWENEMY")); e.p = G.pl[0].pos + G.pl[0].fwd * d + V3(d * 0.12f, d * 0.06f, 0); e.v = G.pl[0].fwd * -0.01f; e.cd = 99; G.en.push_back(e); }   // test: a fighter parked in front of P1 (model check)
     if (getenv("VS_TAILTEST")) { Enemy e; e.kind = EN_FIGHTER; e.tgt = 0; e.state = 3; e.p = G.pl[0].pos - G.pl[0].fwd * 150 + V3(10, 6, 0); e.v = G.pl[0].fwd * 120; e.cd = 5; G.en.push_back(e); }
     for (auto& p : G.pl) if (p.joined) setupCam(p);
@@ -1541,7 +1617,7 @@ int main(int argc, char** argv) {
         if (loadVsm(md + "enemy.vsm", PK_ENEMY)) { ME = &PK_ENEMY; S_ENEMY = 6.0f; }
         loadVsm(md + "cockpit.vsm", PK_COCKPIT);
         if (loadVsm(md + "ywing.vsm", PK_YWING)) NSHIPS = 2;
-        loadVsm(md + "falcon.vsm", PK_FALCON);
+        loadVsm(md + "falcon.vsm", PK_FALCON); loadVsm(md + "destroyer.vsm", PK_DESTROYER);
         if (loadVsm(md + "station.vsm", PK_STATION)) { MS = &PK_STATION; S_STATION = 1.0f; }
     }
     { Rng sr; sr.s = 31337; for (int i = 0; i < 420; i++) { V3 d(sr.range(-1, 1), sr.range(-1, 1), sr.range(-1, 1)); if (len3(d) > 1 || len3(d) < 0.1f) { i--; continue; } G.sky.push_back(norm3(d)); } }
