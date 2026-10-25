@@ -75,7 +75,7 @@ static void blob3(Canvas& cv, const Cam& cam, V3 p, float r, Col c, float minPx 
 struct Model { std::vector<V3> v; std::vector<int> e; std::vector<V3> n; bool sorted = false; const Model* far = nullptr;   // far: decimated stand-in once small on screen
       // n: 2 face normals per edge (zero = always drawn)
     void E(std::initializer_list<int> l) { for (int x : l) e.push_back(x); } };
-static Model M_FIGHTER, M_SHIP, M_CITADEL, M_TURRET, PK_PLAYER, PK_ENEMY, PK_STATION, PK_COCKPIT, PK_YWING, PK_FALCON, PK_DESTROYER, PK_TRENCH, PK_BWING, PK_BWING_CK;
+static Model M_FIGHTER, M_SHIP, M_CITADEL, M_TURRET, PK_PLAYER, PK_ENEMY, PK_STATION, PK_COCKPIT, PK_YWING, PK_FALCON, PK_DESTROYER, PK_TRENCH, PK_BWING, PK_BWING_CK, PK_ARWING;
 static Model PK_FAR[7], PK_ACE;   // *_far.vsm: player, enemy, ywing, bwing, falcon, destroyer, ace; PK_ACE: the enemy ace's ship
 // PK_TRENCH: one repeating tile of trench walls/floor (tools/trench_tile.py)
 // battle station radius (true scale would be ~70000: from close in that reads as a flat wall)
@@ -179,11 +179,12 @@ static void drawModel(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 fw,
 // the outer wings forward and apart until the cannons sit in the screen corners. Y-wing: hides the canopy round the eye.
 struct Player;
 struct Ship { const char* name; Model* m; Model* ck; float k; V3 eye; V3 muz[4]; float bodyHalf, warpY, warpZ, hideR; float turn, bomb; };   // turn: steering x, bomb: hit-size x on towers, turrets and the port
-static Ship SHIPS[4] = {
+static Ship SHIPS[5] = {
     { "STRIKE FIGHTER", &PK_PLAYER, &PK_COCKPIT, 1.0f, V3(-0.044f, 0.0f, -0.35f), { V3(-0.852f, -0.17f, 0.373f), V3(-0.918f, 0.195f, 0.371f), V3(0.829f, -0.186f, 0.337f), V3(0.765f, 0.198f, 0.314f) }, 0.58f, 0.12f, 0.75f, 0, 1.0f, 1.0f },
     { "ASSAULT BOMBER", &PK_YWING, nullptr, 1.3f, V3(0.0f, 0.1f, 0.33f), { V3(-0.03f, 0.02f, 0.72f), V3(-0.03f, 0.03f, 0.72f), V3(0.03f, 0.02f, 0.72f), V3(0.03f, 0.03f, 0.72f) }, 0, 0, 0, 0.12f, 0.87f, 1.5f },
     { "HEAVY BOMBER", &PK_BWING, &PK_BWING_CK, 1.35f, V3(0.0f, 0.9f, 0.1f), { V3(-0.01f, -0.95f, 0.35f), V3(-0.654f, 0.299f, 0.353f), V3(0.0f, 0.8f, 0.28f), V3(0.653f, 0.299f, 0.353f) }, 0.45f, 0.35f, 0.9f, 0, 0.75f, 1.9f },
     { "FREIGHTER", &PK_FALCON, nullptr, 2.78f, V3(0.6f, 0.07f, 0.40f), { V3(-0.3f, 0.0f, 1.0f), V3(-0.3f, 0.03f, 1.0f), V3(0.28f, 0.0f, 1.0f), V3(0.28f, 0.03f, 1.0f) }, 0, 0, 0, 0.16f, 0.85f, 1.2f },   // level 2: everyone flies it (34.75 m)
+    { "STAR FIGHTER", &PK_ARWING, nullptr, 1.25f, V3(0, 0.12f, 0.15f), { V3(-0.94f, -0.16f, -0.6f), V3(-0.94f, -0.1f, -0.6f), V3(0.94f, -0.16f, -0.6f), V3(0.94f, -0.1f, -0.6f) }, 0, 0, 0, 0.25f, 1.0f, 1.2f },   // Star Fox mode
 };
 static int NSHIPS = 1;   // ships whose model loaded (the X-wing is always first)
 static const Ship& shipOf(const Player& p);
@@ -207,7 +208,7 @@ static const Col C_WHITE(255, 255, 255), C_DIM(115, 130, 160), C_GOOD(110, 255, 
 static const Col C_ENEMY(255, 70, 90), C_BALL(255, 130, 40), C_TRENCH(60, 130, 255), C_GROUND(50, 120, 230), C_TOWER(90, 255, 150), C_CAT(255, 160, 40), C_PORT(255, 235, 90), C_CIT(150, 170, 255);
 
 enum { ST_TITLE, ST_HELP, ST_OPTIONS, ST_LOBBY, ST_GAME, ST_ICON, ST_LOGO };
-enum { PH_SPACE, PH_SURFACE, PH_TRENCH, PH_ESCAPE, PH_TALLY, PH_ASTEROIDS, PH_LIGHTSPEED, PH_TUNNEL, PH_TURRET };
+enum { PH_SPACE, PH_SURFACE, PH_TRENCH, PH_ESCAPE, PH_TALLY, PH_ASTEROIDS, PH_LIGHTSPEED, PH_TUNNEL, PH_TURRET, PH_FOX };
 enum { EN_FIGHTER, EN_TOWER, EN_TURRET, EN_PURSUER, EN_REACTOR };   // pursuer: chases you down the trench / tunnel
 static const char* RESNAMES[5] = { "AUTO", "1280 X 720", "1920 X 1080", "2560 X 1440", "3840 X 2160" };
 static const int RESH[5] = { 0, 720, 1080, 1440, 2160 };
@@ -237,6 +238,7 @@ struct Player {
     float inv = 0, hitT = 0, shake = 0, downT = 0, bank = 0, pitchExtra = 0, botFire = 0; int score = 0, kills = 0, ballsShot = 0;
     V3 pos, fwd = V3(0, 0, 1), up = V3(0, 1, 0); float speed = 110, thr = 0;   // open-space flight
     int ship = 0;   // SHIPS index (lobby Up/Down)
+    float rollT = 0, charge = 0; int rollDir = 1, foxHits = 0; bool botRoll = false;   // Star Fox mode: barrel roll, charge shot
     int turret = 0; float tYaw = 0, tPitch = 0.3f;   // level 2 turret fight: 0 top / 1 bottom gun, its aim
     float expT = 0, gunCd = 0;   // trench: time spent above the lip (exposed to the surface guns)
     Cam ck;   // the cockpit camera this frame (your own ship is drawn locked to it)
@@ -260,6 +262,8 @@ struct Game {
     std::string banner, banner2; float bannerT = 0;
     std::vector<Enemy> en; std::vector<Ball> balls; std::vector<Bolt> bolts; std::vector<Frag> frags; std::vector<Flash> flashes; std::vector<Catwalk> cat; std::vector<Star> stars;
     std::vector<V3> sky; float runLen = 9000;
+    int mode = 0;   // 0 the three levels, 1 STAR FOX MODE (fox.h)
+    float foxLen = 9000, foxWaveZ = 0, foxBossT = 0, foxBossX = 0, foxBossY = 0, foxClearT = -1; bool foxBoss = false;
     int level = 1, startLevel = 1; float aceCd = 20;   // level 1-3 (see levels.h); the enemy ace returns aceCd seconds after leaving
     bool chaseOn = false, chaseDone = false; float chaseT = 0;   // trench / tunnel pursuit
     float fieldLen = 10000, hyperT = -1; V3 falP; float falSpeed = 95, turretDoneT = -1;   // level 2 (falP: the freighter during the turret fight)
@@ -323,7 +327,7 @@ static int joinedCount() { int n = 0; for (auto& p : G.pl) if (p.joined) n++; re
 static bool isSpace() { return G.phase == PH_SPACE || (G.phase == PH_ESCAPE && G.citBoom) || G.phase == PH_TALLY || G.phase == PH_ASTEROIDS || G.phase == PH_LIGHTSPEED || G.phase == PH_TURRET; }
 static V3 ppos(const Player& p) { return isSpace() ? p.pos : V3(p.x, p.y, G.z + p.zoff); }
 static float railChaseBack(const Player& p);   // how far back the chase camera must sit to frame the trench / tunnel pursuers (0 = none)
-static bool viewThird(const Player& p) { if (G.phase == PH_TURRET) return false; return p.third || (p.tailHold > 0 && (G.phase == PH_SPACE || G.phase == PH_ASTEROIDS)) || railChaseBack(p) > 0; }
+static bool viewThird(const Player& p) { if (G.phase == PH_TURRET) return false; if (G.phase == PH_FOX) return !p.third; return p.third || (p.tailHold > 0 && (G.phase == PH_SPACE || G.phase == PH_ASTEROIDS)) || railChaseBack(p) > 0; }
 static V3 lerp3(V3 a, V3 b, float t) { return a + (b - a) * t; }
 static void shipFrame(const Player& o, V3& pos, V3& fw, V3& rt, V3& up);
 static void ownFrame(const Player& p, V3& pos, V3& fw, V3& rt, V3& up);
@@ -331,7 +335,7 @@ static void pmsg(Player& p, const std::string& m) { p.msg = m; p.msgT = 2.2f; }
 static V3 pvel(const Player& p) { return isSpace() ? p.fwd * p.speed : V3(0, 0, G.speed); }
 static V3 squadCenter() { V3 c; int n = 0; for (auto& p : G.pl) if (p.joined && !p.down) { c += ppos(p); n++; } return n ? c * (1.f / n) : V3(); }
 static int randomAlive() { std::vector<int> v; for (int i = 0; i < 4; i++) if (G.pl[i].joined && !G.pl[i].down) v.push_back(i); return v.empty() ? 0 : v[R.i((int)v.size())]; }
-static const Ship& shipOf(const Player& p) { if (G.level == 2 && G.state == ST_GAME && !PK_FALCON.v.empty()) return SHIPS[3]; return SHIPS[std::min(p.ship, NSHIPS - 1)]; }
+static const Ship& shipOf(const Player& p) { if (G.mode == 1 && G.state == ST_GAME && !PK_ARWING.v.empty()) return SHIPS[4]; if (G.level == 2 && G.state == ST_GAME && !PK_FALCON.v.empty()) return SHIPS[3]; return SHIPS[std::min(p.ship, NSHIPS - 1)]; }
 // cinematic scale, per camera: far ships are drawn bigger so they still read on screen (hit spheres grow the same,
 // so what you see is what you can hit); 1 up close
 static float visScale(V3 camP, V3 at, float from, float range, float extra) { return 1 + clampf((len3(at - camP) - from) / range, 0, 1) * extra; }
@@ -361,7 +365,7 @@ static void placeFormation(float spread) {
     const float fx[4] = { -1, 1, -1, 1 }, fy[4] = { 0.5f, 0.5f, -0.6f, -0.6f };
     for (auto& p : G.pl) if (p.joined) { p.x = fx[p.idx] * spread * (joinedCount() > 1 ? 1 : 0); p.y = fy[p.idx] * spread * (joinedCount() > 2 ? 1 : 0); p.zoff = -12.f * p.idx; p.aim = V2(); p.bank = 0; p.pitchExtra = 0; }
 }
-static void setupAsteroids(); static void setupTunnel(); static void setupTurret(); static void setupEscortRun();
+static void setupAsteroids(); static void setupTunnel(); static void setupTurret(); static void setupEscortRun(); static void foxSetup();
 static void beginPhase(int ph) {
     int prev = G.phase; G.railMul = 1;
     for (auto& q : G.pl) { q.tailNow = false; q.tailHold = 0; }
@@ -442,6 +446,7 @@ static void beginPhase(int ph) {
     }
     case PH_LIGHTSPEED: { AU.play(SND_PORT, 0.9f, 0, 1.3f); setBanner("LIGHT SPEED", "", 2.5f); for (auto& p : G.pl) if (p.joined && !p.down) G.portBy = p.idx; break; }
     case PH_TUNNEL: { setupTunnel(); break; }
+    case PH_FOX: { G.stR = ST_RADIUS; G.stC = V3(0, 0, 1e7f); G.caps.clear(); G.ally = Game::Ally(); G.esc.clear(); placeFormation(14); for (auto& p : G.pl) if (p.joined) p.y += 10; foxSetup(); break; }
     case PH_TURRET: { G.speed = 0; G.citBoom = false; G.stR = ST_RADIUS; G.stC = V3(0, 0, 1e7f); G.caps.clear(); G.ally = Game::Ally(); setupTurret(); break; }
     case PH_TALLY: {
         for (auto& p : G.pl) if (p.joined) {
@@ -477,7 +482,8 @@ static void startGame() {
     layoutViews();
     G.state = ST_GAME; G.stateT = 0;
     G.level = G.startLevel; if (getenv("VS_LEVEL")) G.level = clampf((float)atoi(getenv("VS_LEVEL")), 1, 3);
-    G.phase = PH_SPACE; beginPhase(G.level != 2 ? PH_SPACE : PK_FALCON.v.empty() ? PH_ASTEROIDS : PH_TURRET);
+    if (getenv("VS_FOX")) G.mode = 1;
+    G.phase = PH_SPACE; if (G.mode == 1) beginPhase(PH_FOX); else beginPhase(G.level != 2 ? PH_SPACE : PK_FALCON.v.empty() ? PH_ASTEROIDS : PH_TURRET);
     printf("game: start level %d wave %d players %d\n", G.level, G.wave, joinedCount());
 }
 
@@ -502,6 +508,8 @@ static void hitPlayer(Player& p, const char* why) {
     }
 }
 #include "levels.h"
+static Dev* devById(int id); static bool pr(const Dev& d, int b);
+#include "fox.h"
 static void playerFire(Player& p) {
     p.fireCd = 0.16f; p.gun ^= 1;
     Cam& c = p.cam; V3 ray = c.ray(crossOff(p));
@@ -702,7 +710,7 @@ static void updateFighters(float dt) {
             V3 want = norm3(aimp - e.p);
             cur = norm3(cur + (want - cur) * std::min(1.f, dt * turn * am));
             if (d < 120) { e.state = 1; e.hide = R.range(1.8f, 3.2f); cur = norm3(cur + rndDir() * 0.9f); AU.play(SND_TIEFLY, 0.85f, R.range(-0.4f, 0.4f), R.range(0.9f, 1.12f), 250); }
-            if (e.cd <= 0 && d < 780 && d > 90 && dot3(cur, norm3(tp - e.p)) > 0.82f) { e.cd = std::max(0.9f, 2.6f - 0.13f * G.wave) * R.range(0.8f, 1.2f); if (ei >= 0) { G.balls.size(); if (R.f() < 0.45f) escortHit(ei); } else turretShot(e) || (fireBall(e.p + cur * 7, e.tgt), true); }
+            if (e.cd <= 0 && d < 780 && d > 90 && dot3(cur, norm3(tp - e.p)) > 0.82f) { e.cd = std::max(0.9f, 2.6f - 0.13f * G.wave) * R.range(0.8f, 1.2f); if (ei >= 0) { if (R.f() < 0.45f) escortHit(ei); } else turretShot(e) || (fireBall(e.p + cur * 7, e.tgt), true); }
         } else {              // extend away, then come round again
             e.hide -= dt; if (e.hide <= 0) { e.state = 0; e.tgt = randomAlive(); }
         }
@@ -773,6 +781,7 @@ static void clampPlayer(Player& p, float dt) {
     if (G.phase == PH_SURFACE) { y0 = GROUND_Y + 6; y1 = 75; }
     if (G.phase == PH_TRENCH) { x0 = -TR_W + 4.5f; x1 = TR_W - 4.5f; y0 = TR_FLOOR + 3.5f; y1 = TR_LIP_MAX; }
     if (G.phase == PH_TUNNEL) { V3 c; float hw, hh; tunFrame(G.z + p.zoff, c, hw, hh); x0 = c.x - hw + 5; x1 = c.x + hw - 5; y0 = c.y - hh + 4; y1 = c.y + hh - 4; }
+    if (G.phase == PH_FOX) { x0 = -FOX_XW; x1 = FOX_XW; y0 = FOX_GROUND + 6; y1 = FOX_YTOP; }
     if (G.phase == PH_ESCAPE || G.phase == PH_TALLY) return;
     float k = (G.phase == PH_TRENCH || G.phase == PH_TUNNEL) && G.phaseT < 1.5f ? 70 : 400;   // ease into the trench
     auto soft = [&](float& v, float lo, float hi) { if (v < lo) v = std::min(lo, v + k * dt); if (v > hi) v = std::max(hi, v - k * dt); };
@@ -784,6 +793,7 @@ static bool pr(const Dev& d, int b) { return d.b[b] && !d.pb[b]; }
 
 static void botThink(Player& p, float dt, V2& desired, bool& fire) {
     V3 me = ppos(p); float best = 1e9; V3 tgt; bool has = false;
+    if (G.phase == PH_FOX) { foxBot(p, desired, fire); (void)dt; return; }
     if (G.phase == PH_TURRET) {   // gunner: swing onto the nearest fighter (or incoming shot) and fire when it's in the sight
         float bd = 1e9; V3 tg; bool h = false;
         for (auto& e : G.en) if (!e.dead && e.kind == EN_FIGHTER) { V3 cc = p.cam.toCam(e.p); float d = len3(e.p - me) + (cc.z < 0 ? 800 : 0); if (d < bd) { bd = d; tg = e.p; h = true; } }
@@ -899,11 +909,12 @@ static void updatePlayer(Player& p, float dt) {
         V3 ds = p.pos - G.stC; float dl = len3(ds);
         if (dl < G.stR + 6) { p.pos = G.stC + ds * ((G.stR + 40) / dl); p.fwd = norm3(p.fwd + ds * (1 / dl)); hitPlayer(p, "station"); }
     } else if (G.phase != PH_ESCAPE && G.phase != PH_TALLY) {
-        float ms = (G.phase == PH_TRENCH ? 42 : G.phase == PH_TUNNEL ? 62 : 95) * turnMul() * (0.5f + 0.5f * shipOf(p).turn);
+        float ms = (G.phase == PH_TRENCH ? 42 : G.phase == PH_TUNNEL ? 62 : G.phase == PH_FOX ? 105 : 95) * turnMul() * (0.5f + 0.5f * shipOf(p).turn);
         p.x += p.aim.x * ms * dt; p.y += p.aim.y * ms * dt * 0.85f;
     }
     if (!isSpace()) clampPlayer(p, dt);
     p.bank += (p.aim.x * 0.42f - p.bank) * std::min(1.f, dt * 6);
+    if (G.phase == PH_FOX) { foxInput(p, fire, dt); if (fire && p.fireCd <= 0 && !G.over) foxFire(p); return; }
     if (fire && p.fireCd <= 0 && G.phase != PH_ESCAPE && G.phase != PH_TALLY && !G.over) playerFire(p);
 }
 
@@ -944,10 +955,14 @@ static void stepGame(float dt) {
         if (G.phaseT > 7.0f) beginPhase(PH_TALLY);
         break;
     case PH_TALLY:
+        if (G.phaseT > 4.5f && G.mode == 1) { G.wave++; beginPhase(PH_FOX); break; }
         if (G.phaseT > 4.5f) { G.wave++; G.runs = 0; G.level = G.level % 3 + 1; beginPhase(G.level != 2 ? PH_SPACE : PK_FALCON.v.empty() ? PH_ASTEROIDS : PH_TURRET); }
         break;
     case PH_TURRET:
         updateFighters(dt); updateTurretPhase(dt);
+        break;
+    case PH_FOX:
+        foxUpdate(dt);
         break;
     case PH_ASTEROIDS:
         updateFighters(dt); updateCapital(dt); updateRocks(dt); maybeSpawnAce(dt); updateAsteroidStage(dt);
@@ -971,6 +986,7 @@ static void stepGame(float dt) {
             if (!p.joined || p.down) continue;
             // closest approach during this step (ball and ship both move), so fast passes can't tunnel through
             V3 r1 = b.p - ppos(p), r0 = r1 - (b.v - pvel(p)) * dt, dr = r1 - r0; float tt = clampf(-dot3(r0, dr) / std::max(1e-6f, dot3(dr, dr)), 0, 1);
+            if (len3(r0 + dr * tt) < 3.4f && p.rollT > 0) { b.dead = true; G.flashes.push_back({ b.p, 0.25f, 0.25f, 7, C_WHITE, true }); AU.play(SND_BALLHIT, 0.5f, 0, 1.5f); break; }   // barrel roll
             if (len3(r0 + dr * tt) < 3.4f) { b.dead = true; hitPlayer(p, "fireball"); G.flashes.push_back({ b.p, 0.3f, 0.3f, 6, C_BALL, false }); break; }
         }
     }
@@ -984,7 +1000,7 @@ static void stepGame(float dt) {
     G.flashes.erase(std::remove_if(G.flashes.begin(), G.flashes.end(), [](const Flash& f) { return f.life <= 0; }), G.flashes.end());
     G.en.erase(std::remove_if(G.en.begin(), G.en.end(), [](const Enemy& e) { return e.dead; }), G.en.end());
     G.balls.erase(std::remove_if(G.balls.begin(), G.balls.end(), [](const Ball& b) { return b.dead; }), G.balls.end());
-    if (G.phase == PH_SURFACE || G.phase == PH_TRENCH || G.phase == PH_TUNNEL) {   // the squad can throttle the run up or down together
+    if (G.phase == PH_SURFACE || G.phase == PH_TRENCH || G.phase == PH_TUNNEL || G.phase == PH_FOX) {   // the squad can throttle the run up or down together
         float t = 0; int n = 0; for (auto& p : G.pl) if (p.joined && !p.down && (!p.bot || G.fireOn)) { t += p.bot ? 1.f : p.thr; n++; }   // bots floor it when the fireball comes
         if (n) G.railMul = clampf(G.railMul + t / n * 0.5f * dt, 0.75f, 1.4f);
         G.speed = G.baseSpeed * G.railMul;
@@ -1139,7 +1155,7 @@ static void drawCannons(Canvas& cv, const Player& p) {
 }
 static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
     bool space = isSpace();
-    drawSky(cv, cam, !space && G.phase != PH_TUNNEL);
+    drawSky(cv, cam, !space && G.phase != PH_TUNNEL && G.phase != PH_FOX);
     if (space) {
         if (G.phase == PH_LIGHTSPEED) drawLightspeed(cv, cam); else drawStars3(cv, cam, me ? pvel(*me) : V3());
         if (!G.citBoom && G.level != 2) drawCitadel(cv, cam, G.stC, G.stR * S_STATION, 1);
@@ -1152,6 +1168,8 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
         drawSurface(cv, cam, G.z);
         float zt = G.zStart + G.surfLen + 250;   // trench entrance ahead
         if (zt < G.z + 1500) drawTrench(cv, cam, G.z, zt, zt + 3000, false);
+    } else if (G.phase == PH_FOX) {
+        drawFoxWorld(cv, cam);
     } else if (G.phase == PH_TUNNEL) {
         drawTunnel(cv, cam, G.z);
     } else if (G.phase == PH_TRENCH || G.phase == PH_ESCAPE) {
@@ -1359,7 +1377,8 @@ static void drawHud(Canvas& cv, Player& p) {
         return;
     }
     // crosshair
-    if (G.phase != PH_ESCAPE && G.phase != PH_TALLY) {
+    if (G.phase == PH_FOX) drawFoxHud(cv, p, u);
+    else if (G.phase != PH_ESCAPE && G.phase != PH_TALLY) {
         V2 c = V2(cx, cy) + crossOff(p); float r = 38 * u, lw = 3.0f * u;
         Col cc = p.col;
         for (int i = 0; i < 4; i++) { V2 d = fromAng(i * PI / 2 + PI / 4); V2 a = c + d * r, n = perp(d); cv.line(a, a - d * r * 0.45f + n * r * 0.0f, lw, cc); cv.line(a, a + n * r * 0.35f, lw, cc); cv.line(a, a - n * r * 0.35f, lw, cc); }
@@ -1395,6 +1414,14 @@ static void drawHud(Canvas& cv, Player& p) {
             else if (G.escStage == 1) obj = "COVER THE BOMBERS  " + std::to_string(std::max(0, G.killsNeeded - G.killsDone)); else obj = "BOMBER GROUP - COME IN";
         } else if (G.approach) { obj = "ATTACK THE STATION " + std::to_string((int)std::max(0.f, len3(G.stC - ppos(p)) - G.stR - 700) / 10 * 10); oc = withA(C_PORT, 0.9f); } else obj = "INTERCEPTORS " + std::to_string(std::max(0, G.killsNeeded - G.killsDone)); break;
     case PH_SURFACE: { int left = (int)std::max(0.f, G.zStart + G.surfLen + 250 - G.z); obj = "TRENCH IN " + std::to_string(left / 10 * 10); break; }
+    case PH_FOX: {
+        snprintf(buf, sizeof buf, "HITS %03d", p.foxHits); obj = buf;
+        if (G.foxBoss && G.foxClearT < 0) {   // carrier health
+            float hp = 0, mx = 0; for (auto& e : FOXE) if (e.kind >= FE_POD) { mx += e.kind == FE_CORE ? 26 + 4.f * G.wave : 14 + 2.f * G.wave; if (!e.dead) hp += std::max(0.f, e.hp); }
+            float bw = vp.w * 0.4f; cv.rectLine(cx - bw / 2, vp.y + 50 * u, bw, 10 * u, 1.2f * u, withA(C_BAD, 0.7f), 0); cv.rect(cx - bw / 2 + 2 * u, vp.y + 52 * u, (bw - 4 * u) * (mx > 0 ? hp / mx : 0), 6 * u, withA(C_BAD, 0.8f));
+        }
+        break;
+    }
     case PH_TURRET: {
         if (G.turretDoneT < 0) obj = "FIGHTERS " + std::to_string(std::max(0, G.killsNeeded - G.killsDone)); else obj = "INTO THE ASTEROIDS";
         break;
@@ -1440,7 +1467,7 @@ static void shipFrame(const Player& o, V3& pos, V3& fw, V3& rt, V3& up) {
     if (isSpace()) {
         fw = norm3(o.fwd); rt = norm3(cross3(o.up, fw)); up = cross3(fw, rt);
         float roll = o.bank * 1.6f, cs = std::cos(roll), sn = std::sin(roll); V3 r2 = rt * cs - up * sn, u2 = up * cs + rt * sn; rt = r2; up = u2;
-    } else { fw = norm3(V3(o.aim.x * 0.3f, o.aim.y * 0.25f + o.pitchExtra, 1)); basisFrom(fw, -o.bank * 1.4f, rt, up); }
+    } else { fw = norm3(V3(o.aim.x * 0.3f, o.aim.y * 0.25f + o.pitchExtra, 1)); basisFrom(fw, -o.bank * 1.4f + foxRoll(o), rt, up); }
 }
 // your own ship: locked to the cockpit camera when you are inside, easing to its normal frame as the view zooms out
 static void ownFrame(const Player& p, V3& pos, V3& fw, V3& rt, V3& up) {
@@ -1482,6 +1509,7 @@ static void setupCam(Player& p) {
         if (p.camBack <= 0) p.camBack = back; p.camBack += (wantB - p.camBack) * 0.02f; upz += (p.camBack - back) * 0.08f; back = p.camBack;
         V3 cp = pos + V3(0, upz, -back); if (G.phase == PH_TRENCH) cp.y = std::min(cp.y, std::max(-1.5f, p.y + 2)); if (G.phase == PH_TUNNEL) { V3 tc; float thw, thh; tunFrame(cp.z, tc, thw, thh); cp.y = std::min(cp.y, tc.y + thh - 3); cp.x = clampf(cp.x, tc.x - thw + 3, tc.x + thw - 3); }
         c1.set(cp, yaw * 0.6f, pitch * 0.6f - 0.06f, p.bank * 0.35f, p.vp, vfov);
+        if (G.phase == PH_FOX) foxCam(p, c1, p.vp, vfov);
     }
     p.ck = c0;
     if (t <= 0) { p.cam = c0; return; }
@@ -1559,7 +1587,7 @@ static void readDevs(float dt, bool inGame) {
             d.ml = (mb & SDL_BUTTON_LMASK) != 0;
             d.b[B_A] = k[SDL_SCANCODE_SPACE] || (!inGame && (k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_KP_ENTER])) || d.ml;
             d.b[B_B] = k[SDL_SCANCODE_BACKSPACE] || (!inGame && k[SDL_SCANCODE_ESCAPE]);
-            d.b[B_X] = k[SDL_SCANCODE_I]; d.b[B_Y] = k[SDL_SCANCODE_G] || k[SDL_SCANCODE_V];
+            d.b[B_X] = k[SDL_SCANCODE_I] || k[SDL_SCANCODE_R]; d.b[B_Y] = k[SDL_SCANCODE_G] || k[SDL_SCANCODE_V];
             d.b[B_START] = (inGame && k[SDL_SCANCODE_ESCAPE]) || k[SDL_SCANCODE_P] || (!inGame && (k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_KP_ENTER]));
             d.b[B_BACK] = k[SDL_SCANCODE_TAB]; d.b[B_LB] = k[SDL_SCANCODE_1]; d.b[B_RB] = k[SDL_SCANCODE_2];   // 1 / 2 = LB / RB (lobby level)
             d.tr = k[SDL_SCANCODE_E] ? 1.f : 0.f; d.tl = k[SDL_SCANCODE_Q] ? 1.f : 0.f;
@@ -1628,10 +1656,10 @@ static void updateMenus(float dt) {
     MenuIn m = menuInput(); G.stateT += dt;
     switch (G.state) {
     case ST_TITLE:
-        if (m.y) { G.menuSel = (G.menuSel + m.y + 4) % 4; AU.play(SND_UI, 0.6f); }
-        if (m.a || m.start) { AU.play(SND_UI_OK, 0.7f); if (G.menuSel == 0) { G.state = ST_LOBBY; G.menuSel = 0; } else if (G.menuSel == 1) G.state = ST_HELP; else if (G.menuSel == 2) { G.state = ST_OPTIONS; G.menuSel = 0; } else G.quit = true; }
+        if (m.y) { G.menuSel = (G.menuSel + m.y + 5) % 5; AU.play(SND_UI, 0.6f); }
+        if (m.a || m.start) { AU.play(SND_UI_OK, 0.7f); if (G.menuSel <= 1) { G.mode = G.menuSel; G.state = ST_LOBBY; G.menuSel = 0; } else if (G.menuSel == 2) G.state = ST_HELP; else if (G.menuSel == 3) { G.state = ST_OPTIONS; G.menuSel = 0; } else G.quit = true; }
         break;
-    case ST_HELP: if (m.a || m.b || m.start) { G.state = ST_TITLE; G.menuSel = 1; AU.play(SND_UI, 0.6f); } break;
+    case ST_HELP: if (m.a || m.b || m.start) { G.state = ST_TITLE; G.menuSel = 2; AU.play(SND_UI, 0.6f); } break;
     case ST_OPTIONS: {
         if (m.y) { G.menuSel = (G.menuSel + m.y + 11) % 11; AU.play(SND_UI, 0.6f); }
         int dx = m.x + (m.a ? 1 : 0);
@@ -1648,11 +1676,11 @@ static void updateMenus(float dt) {
             case 7: G.opt.chase = (int)clampf((float)(G.opt.chase + (m.a ? 0 : dx)), 1, 10); break;
             case 8: G.opt.trench = (G.opt.trench + dx + 3) % 3; break;
             case 9: G.opt.radar = !G.opt.radar; break;
-            case 10: if (m.a) { saveCfg(); G.state = ST_TITLE; G.menuSel = 2; } break;
+            case 10: if (m.a) { saveCfg(); G.state = ST_TITLE; G.menuSel = 3; } break;
             }
             applyAudioVol();
         }
-        if (m.b) { saveCfg(); G.state = ST_TITLE; G.menuSel = 2; }
+        if (m.b) { saveCfg(); G.state = ST_TITLE; G.menuSel = 3; }
         break;
     }
     case ST_LOBBY: {
@@ -1682,8 +1710,8 @@ static void renderMenus(Canvas& cv) {
     switch (G.state) {
     case ST_TITLE: {
         drawLogo(cv, cx, G.H * 0.18f, 100 * u);
-        const char* items[4] = { "PLAY", "HOW TO PLAY", "OPTIONS", "QUIT" };
-        menuList(cv, items, 4, G.menuSel, cx, G.H * 0.52f, 34 * u, 62 * u);
+        const char* items[5] = { "PLAY", "STAR FOX MODE", "HOW TO PLAY", "OPTIONS", "QUIT" };
+        menuList(cv, items, 5, G.menuSel, cx, G.H * 0.48f, 34 * u, 58 * u);
         char b[80]; snprintf(b, sizeof b, "HIGH SCORE %07d   BEST WAVE %d", G.opt.best, G.opt.bestWave);
         FONT.draw(cv, b, V2(cx, G.H - 110 * u), 18 * u, withA(C_PORT, 0.8f), 1);
         FONT.draw(cv, "1-4 PLAYERS  -  SPLIT SCREEN CO-OP", V2(cx, G.H - 60 * u), 16 * u, withA(C_DIM, 0.95f), 1);
@@ -1746,7 +1774,7 @@ static void renderMenus(Canvas& cv) {
                 Cam c; SDL_Rect r = { (int)x, (int)(y0 + 135 * u), (int)pw, (int)(90 * u) }; c.set(V3(0, 3.0f, -11), 0, -0.25f, 0, r, 0.9f); LW = u * 1.3f;
                 const Ship& sh = shipOf(p); bool pk = MP == &PK_PLAYER && !sh.m->v.empty();
                 drawModel(cv, c, pk ? *sh.m : *MP, V3(0, 0, 0), V3(std::sin(G.stateT * 0.9f + i), 0, std::cos(G.stateT * 0.9f + i)), 0, pk ? 5.0f * std::min(1.1f, sh.k) : 1.f, p.col, 1.2f);
-                if (NSHIPS > 1) {   // ship picker: big and blinking so it can't be missed
+                if (NSHIPS > 1 && G.mode == 0) {   // ship picker (Star Fox mode: everyone flies the star fighter): big and blinking so it can't be missed
                     float bl = 0.55f + 0.45f * std::sin(G.stateT * 5 + i);
                     FONT.draw(cv, "UP / DOWN = CHANGE SHIP", V2(x + pw / 2, y0 + 232 * u), 12 * u, withA(C_WHITE, 0.45f + 0.5f * bl), 1);
                     FONT.draw(cv, sh.name, V2(x + pw / 2, y0 + 254 * u), 16 * u, p.col, 1, 0, 0.8f);
@@ -1763,6 +1791,7 @@ static void renderMenus(Canvas& cv) {
             }
         }
         float my = y0 + ph + 80 * u; char ml[64];
+        if (G.mode == 1) snprintf(ml, sizeof ml, "STAR FOX MODE - X / R BARREL ROLL, HOLD FIRE TO CHARGE"); else
         snprintf(ml, sizeof ml, "LB  LEVEL %d - %s  RB", G.startLevel, LEVELNAMES[G.startLevel]); FONT.draw(cv, ml, V2(cx, my - 42 * u), 24 * u, withA(C_WHITE, 0.9f), 1);
         snprintf(ml, sizeof ml, "<  %s  >", STARTNAMES[G.startSel]);
         FONT.draw(cv, ml, V2(cx, my), 34 * u, C_PORT, 1, 0, 1.0f);
@@ -1898,6 +1927,7 @@ int main(int argc, char** argv) {
         if (loadVsm(md + "enemy.vsm", PK_ENEMY)) { ME = &PK_ENEMY; S_ENEMY = 5.5f; }   // about the X-wing's size
         loadVsm(md + "cockpit.vsm", PK_COCKPIT);
         if (loadVsm(md + "ywing.vsm", PK_YWING)) NSHIPS = 2;
+        loadVsm(md + "arwing.vsm", PK_ARWING);
         if (NSHIPS == 2 && loadVsm(md + "bwing.vsm", PK_BWING)) { NSHIPS = 3; loadVsm(md + "bwing_ck.vsm", PK_BWING_CK); }
         loadVsm(md + "falcon.vsm", PK_FALCON); loadVsm(md + "destroyer.vsm", PK_DESTROYER);
         loadVsm(md + "ace.vsm", PK_ACE);

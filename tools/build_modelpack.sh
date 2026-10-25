@@ -23,3 +23,4 @@ python3 $C $A/millennium_falcon.glb $M/falcon_far.vsm --matrix '[[-0.9461,0.324,
 python3 $C $A/star_destroyer.glb $M/destroyer_far.vsm --matrix "$FLIP" --faces 2500 --max 900 --angle 30
 python3 $C $A/tie_advanced.glb $M/ace.vsm --faces 12000 --max 3500 --angle 40   # enemy ace (TIE Advanced)
 python3 $C $A/tie_advanced.glb $M/ace_far.vsm --faces 1500 --max 600 --angle 35
+python3 $C $A/arwing.glb $M/arwing.vsm --faces 5000 --max 3000 --angle 1   # Star Fox mode ship (30 faces: keep every edge)

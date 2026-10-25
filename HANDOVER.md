@@ -5,6 +5,14 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v11 BETA (25 Oct, cloud session) — STAR FOX MODE (`dist-beta/vectorstrike_beta.x86_64`, md5 5da21ada...)
+Not deployed yet. Copy the beta binary plus the new `modelpack/arwing.vsm` (from Chris's `assets_src/arwing.glb`, low-poly SNES fighter; every edge kept).
+- Title menu: PLAY / **STAR FOX MODE** / HOW TO PLAY / OPTIONS / QUIT. Code: `src/fox.h` (+ hooks in main.cpp, `G.mode` 1).
+- On rails: the course flies forward, the stick slides the ship round the screen, the camera sits behind and trails it. Lasers fire where the ship points (two-box reticle). X (keyboard R) = barrel roll, turns away shots. Hold fire to charge (ring round the reticle), release = homing bomb with a blast. Triggers / E,Q = boost / brake (squad average). Y = cockpit view.
+- Course (9500 + 600/wave long): city blocks (some in the path), arches (+100 for flying through) with rings, a pillar field; gold rings = shield +1 / +500. Drone flights (V or side sweeps), ground tanks. At the end the carrier boss flies ahead of you: shoot off its two gun pods, then the caged core opens (red); its health bar is at the top. Then COURSE CLEAR -> tally -> next course (wave +1, denser, faster). Score line shows HITS like the original.
+- Everyone flies the star fighter in this mode (the lobby hides the ship picker and shows the controls). Enemies and the boss are generic wireframes made in code.
+- Test switch `VS_FOX=1`. Perf (cloud software GL, 1080p): 4 players 49 fps, 1 player 63. Soak: 4 bots 800 s cleared 8 courses, no crashes.
+
 ## v10 BETA (25 Oct, cloud session) — Chris's fixes after playing v9 (`dist-beta/vectorstrike_beta.x86_64`, md5 e13056ec...)
 **25 Oct ~07:55: installed on ARCADE-21 as the only Vector Strike** - compiled from f14f52b in the Cowork session (md5 51ad341b9e03e2d2b933b2e8c978e73b; differs from the cloud's e13056ec only by build). Chris asked for one game and no backups: all `vectorstrike_prev_*`, the beta binary/launcher and `modelpack_v7` were deleted. 18 model files unchanged since v9.
 Not deployed yet. Same install as before; the model pack is unchanged since v9.
