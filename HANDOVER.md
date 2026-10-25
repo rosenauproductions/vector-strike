@@ -5,6 +5,11 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v16 BETA (cloud session) — staggered ship positions in multiplayer (`dist-beta/vectorstrike_beta.x86_64`, md5 4dd73f9c...)
+Not deployed yet; no model changes.
+- With 2-4 players the autopilot (bots, and humans on ON RAILS) no longer flies everyone into the same spot: `formationAdjust()` (main.cpp, run after `botThink`) gives each player a formation slot round the squad's middle (P1 high-left, P2 high-right, P3 low-left, P4 low-right) on the surface / trench / tunnel / Star Fox rails, and in open space, the asteroids and Ice Planet steers off any wingmate closer than 80 (45 on the ice planet).
+- Measured with 4 bots over 60 s (closest pair of ships, sampled each second, "stacked" = under 10 apart): trench stacked 43/59 -> 4/59; Star Fox 56/59 -> 3/59; space average gap 35 -> 97 (0 stacked); ice planet 48/59 -> 0/59. Test switch `VS_SPREADLOG=1` prints it.
+
 ## v15 BETA (25 Oct, cloud session) — ENEMY WAVES setting (`dist-beta/vectorstrike_beta.x86_64`, md5 08c8a203... built on v14)
 Not deployed yet; no model changes.
 - Options -> ENEMY WAVES: FEWER / NORMAL / MORE / LOTS = x0.6 / x1 / x1.5 / x2.1 (`foes=` in vectorstrike.cfg, `foeMul()` / `foeN()` in main.cpp). Scales, in every mode: fighters on screen at once and how fast they come, kill quotas (space, turret fight, escort cover, tank waves), the escort's attack waves, trench / tunnel wall turrets, surface tower density, Star Fox drone flights and tanks, Ice Planet walkers (max 6) and probe droids.

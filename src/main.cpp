@@ -808,6 +808,37 @@ static void clampPlayer(Player& p, float dt) {
 static Dev* devById(int id) { for (auto& d : G.devs) if (d.id == id) return &d; return nullptr; }
 static bool pr(const Dev& d, int b) { return d.b[b] && !d.pb[b]; }
 
+// several players on autopilot (bots, or ON RAILS) would all fly to the same spot: each one keeps its own formation
+// slot (P1 high left, P2 high right, P3 low left, P4 low right, around the squad's middle) and steers off a wingmate
+// that gets too close
+static void formationAdjust(Player& p, V2& desired) {
+    if (joinedCount() < 2 || p.down) return;
+    static const float SX[4] = { -1, 1, -1, 1 }, SY[4] = { 0.5f, 0.5f, -0.6f, -0.6f };
+    int r = 0, n = 0; for (auto& o : G.pl) if (o.joined && !o.down) { if (&o == &p) r = n; n++; } if (n < 2) return;
+    bool rails = G.phase == PH_SURFACE || G.phase == PH_TRENCH || G.phase == PH_TUNNEL || G.phase == PH_FOX;
+    if (rails) {
+        float mx = 0, my = 0; for (auto& o : G.pl) if (o.joined && !o.down) { mx += o.x; my += o.y; } mx /= n; my /= n;
+        float w = G.phase == PH_FOX ? 30 : G.phase == PH_SURFACE ? 22 : 11, h = G.phase == PH_FOX ? 16 : G.phase == PH_SURFACE ? 10 : 0;
+        desired.x += clampf((mx + SX[r & 3] * w - p.x) * 0.05f, -0.45f, 0.45f);
+        if (h > 0) desired.y += clampf((my + SY[r & 3] * h - p.y) * 0.04f, -0.3f, 0.3f);
+        for (auto& o : G.pl) if (o.joined && !o.down && &o != &p) {
+            float dx = p.x - o.x, dy = p.y - o.y, RX = G.phase == PH_FOX ? 24.f : 15.f, RY = G.phase == PH_FOX ? 16.f : 10.f;
+            if (std::fabs(dx) < RX && std::fabs(dy) < RY) {
+                desired.x += (dx > 0 || (dx == 0 && p.idx > o.idx) ? 1.f : -1.f) * (G.phase == PH_FOX ? 1.0f : 0.6f) * (1 - std::fabs(dx) / RX);
+                if (G.phase == PH_FOX) desired.y += (dy > 0 || (dy == 0 && p.idx > o.idx) ? 1.f : -1.f) * 0.6f * (1 - std::fabs(dy) / RY);
+            }
+        }
+    } else if (isSpace() || G.phase == PH_HOTH) {
+        V3 me = ppos(p), rt = norm3(cross3(p.up, p.fwd)), up = cross3(p.fwd, rt); float R = G.phase == PH_HOTH ? 45 : 80;
+        for (auto& o : G.pl) if (o.joined && !o.down && &o != &p) {
+            V3 d = me - ppos(o); float L = len3(d); if (L > R) continue;
+            V2 push(dot3(d, rt), dot3(d, up)); if (len(push) < 0.5f) push = V2(SX[r & 3], SY[r & 3]);
+            desired = desired + norm(push) * (1.1f * (1 - L / R));
+        }
+        desired = desired + V2(SX[r & 3], SY[r & 3]) * 0.06f;   // a slight lean toward your own slot
+    } else return;
+    desired.x = clampf(desired.x, -1, 1); desired.y = clampf(desired.y, -1, 1);
+}
 static void botThink(Player& p, float dt, V2& desired, bool& fire) {
     V3 me = ppos(p); float best = 1e9; V3 tgt; bool has = false;
     if (G.phase == PH_FOX) { foxBot(p, desired, fire); (void)dt; return; }
@@ -891,7 +922,7 @@ static void updatePlayer(Player& p, float dt) {
     if (p.down) { p.downT += dt; return; }
     bool fire = false;
     if (G.phase == PH_ESCAPE || G.phase == PH_TALLY) { p.aim = p.aim * std::pow(0.1f, dt); }
-    else if (p.bot) { V2 want; botThink(p, dt, want, fire); p.aim = p.aim + (want - p.aim) * std::min(1.f, dt * 5); }
+    else if (p.bot) { V2 want; botThink(p, dt, want, fire); formationAdjust(p, want); p.aim = p.aim + (want - p.aim) * std::min(1.f, dt * 5); }
     else {
         Dev* d = devById(p.dev);
         if (d) {
@@ -921,7 +952,7 @@ static void updatePlayer(Player& p, float dt) {
     // ON RAILS (lobby toggle, on by default once a Wii remote joins): the autopilot flies the ship - the bots' pilot -
     // and your sight only aims and shoots, like the 1983 cabinet. Throttle still works when you touch it.
     if (G.opt.rails && !p.bot && G.phase != PH_TANK && G.phase != PH_TURRET && G.phase != PH_ESCAPE && G.phase != PH_TALLY) {
-        float hum = p.thr; V2 want; bool bf = false; botThink(p, dt, want, bf);
+        float hum = p.thr; V2 want; bool bf = false; botThink(p, dt, want, bf); formationAdjust(p, want);
         if (std::fabs(hum) > 0.1f || !isSpace()) p.thr = hum;
         p.steer = p.steer + (want - p.steer) * std::min(1.f, dt * 5);
     } else p.steer = p.aim;
@@ -951,6 +982,10 @@ static void updatePlayer(Player& p, float dt) {
 }
 
 static void stepGame(float dt) {
+    if (getenv("VS_SPREADLOG")) {   // test: closest pair of ships, sampled each second
+        static float acc = 0, sum = 0, mn = 1e9; static int k = 0, close = 0; acc += dt;
+        if (acc > 1) { acc = 0; float m = 1e9; for (auto& a : G.pl) for (auto& b : G.pl) if (&a < &b && a.joined && b.joined && !a.down && !b.down) m = std::min(m, len3(ppos(a) - ppos(b) - V3(0, 0, a.zoff - b.zoff))); if (m < 1e8) { sum += m; k++; mn = std::min(mn, m); if (m < 10) close++; printf("spread: avg %.0f min %.0f stacked %d/%d\n", sum / k, mn, close, k); } }
+    }
     G.time += dt; G.phaseT += dt; G.bannerT = std::max(0.f, G.bannerT - dt); G.citSpin += dt * 0.08f;
     float zPrev = G.z;
     float spd = G.speed; if (G.over) spd *= 0.3f;
