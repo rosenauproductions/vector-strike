@@ -188,7 +188,7 @@ static void drawTankWorld(Canvas& cv, const Cam& cam, const Player* me) {
 static void drawTankHud(Canvas& cv, Player& p, float u) {
     const SDL_Rect& vp = p.vp; float cx = vp.x + vp.w * 0.5f, cy = vp.y + vp.h * 0.5f; Col g(90, 255, 130); char buf[64];
     // periscope sight
-    if (!viewThird(p)) { float s = 26 * u; cv.line(V2(cx - s * 2, cy), V2(cx - s * 0.6f, cy), 2 * u, g, 0.4f); cv.line(V2(cx + s * 0.6f, cy), V2(cx + s * 2, cy), 2 * u, g, 0.4f);
+    if (!viewThird(p) && len(p.glance) < 0.15f) { float s = 26 * u; cv.line(V2(cx - s * 2, cy), V2(cx - s * 0.6f, cy), 2 * u, g, 0.4f); cv.line(V2(cx + s * 0.6f, cy), V2(cx + s * 2, cy), 2 * u, g, 0.4f);
         cv.line(V2(cx, cy - s * 1.6f), V2(cx, cy - s * 0.6f), 2 * u, g, 0.4f); cv.line(V2(cx - s * 0.6f, cy - s * 0.6f), V2(cx + s * 0.6f, cy - s * 0.6f), 2 * u, g, 0.4f);
         cv.line(V2(cx - s * 0.6f, cy + s * 0.6f), V2(cx + s * 0.6f, cy + s * 0.6f), 2 * u, g, 0.4f); }
     // radar: a sweeping scope at the top, enemies relative to where you face

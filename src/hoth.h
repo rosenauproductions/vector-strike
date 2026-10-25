@@ -215,7 +215,7 @@ static void drawHothWorld(Canvas& cv, const Cam& cam, const Player* me) {
 }
 static void drawHothHud(Canvas& cv, Player& p, float u) {
     const SDL_Rect& vp = p.vp; float cx = vp.x + vp.w * 0.5f, cy = vp.y + vp.h * 0.5f; char buf[64];
-    if (!viewThird(p) || true) { V2 c(cx, cy); float r = 20 * u; cv.circle(c, r, 1.8f * u, withA(p.col, 0.8f), 0.4f, 24); cv.line(c - V2(r * 1.6f, 0), c - V2(r * 0.6f, 0), 1.8f * u, p.col, 0.3f); cv.line(c + V2(r * 0.6f, 0), c + V2(r * 1.6f, 0), 1.8f * u, p.col, 0.3f); }
+    if (len(p.glance) < 0.15f) { V2 c(cx, cy); float r = 20 * u; cv.circle(c, r, 1.8f * u, withA(p.col, 0.8f), 0.4f, 24); cv.line(c - V2(r * 1.6f, 0), c - V2(r * 0.6f, 0), 1.8f * u, p.col, 0.3f); cv.line(c + V2(r * 0.6f, 0), c + V2(r * 1.6f, 0), 1.8f * u, p.col, 0.3f); }
     int left = 0; float nearZ = 1e9; for (auto& w : WK) if (!w.dead) { left++; nearZ = std::min(nearZ, len3(V3(w.p.x, 0, w.p.z))); }
     snprintf(buf, sizeof buf, "WALKERS %d   NEAREST %d", left, (int)std::max(0.f, nearZ - 520) / 10 * 10); FONT.draw(cv, buf, V2(cx, vp.y + 22 * u), 18 * u, withA(C_PORT, 0.9f), 1);
     float bw = vp.w * 0.3f; FONT.draw(cv, "SHIELD GENERATOR", V2(cx, vp.y + 46 * u), 12 * u, withA(C_WHITE, 0.7f), 1);

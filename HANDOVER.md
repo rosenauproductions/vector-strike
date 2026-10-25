@@ -5,6 +5,11 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v13 BETA (25 Oct) — right-stick glance in every mode (`dist-beta/vectorstrike_beta.x86_64`, md5 6278f520...)
+Not deployed yet; no model changes since v12.
+- Right stick looks round (keyboard J / L left/right, K / U down/up): full sideways = almost straight behind, up/down ~50 degrees, eases back when released. Cockpit views turn your head (the ship stays put); chase views (and Star Fox, Ice Planet) swing the camera round the ship. Guns still fire where the ship points (`p.aimCam` = the camera before the glance); centre sights hide while glancing. Not in the level 2 gun turret (there the stick already aims).
+- Test switch `VS_GLANCE=x,y`.
+
 ## v12 BETA (25 Oct, cloud session) — TANK BATTLE + ICE PLANET modes (`dist-beta/vectorstrike_beta.x86_64`, md5 e8d9a39c...)
 Not deployed yet. Copy the beta binary plus the new `modelpack/atat.vsm`, `speeder.vsm`, `probe.vsm`, `hturret.vsm` (from Chris's GLBs in `assets_src/`, rebuilt by `tools/build_modelpack.sh`).
 Title menu is now PLAY / STAR FOX MODE / TANK BATTLE / ICE PLANET / HOW TO PLAY / OPTIONS / QUIT (`G.mode` 0-3).

@@ -229,7 +229,7 @@ struct Star { V3 p; float b; };
 enum { B_A, B_B, B_X, B_Y, B_LB, B_RB, B_START, B_BACK, B_UP, B_DOWN, B_LEFT, B_RIGHT, B_LS, NB };
 struct Dev {
     int id = -1; SDL_GameController* gc = nullptr; std::string name; bool nintendo = false, hasGyro = false;
-    bool b[NB] = {}, pb[NB] = {}; V2 mv; float tl = 0, tr = 0; int navX = 0, navY = 0, nxLast = 0, nyLast = 0; float nxT = 0, nyT = 0;
+    bool b[NB] = {}, pb[NB] = {}; V2 mv; float tl = 0, tr = 0; V2 rs; int navX = 0, navY = 0, nxLast = 0, nyLast = 0; float nxT = 0, nyT = 0;
     bool ml = false, mouseMoved = false; V2 mouse; V3 gyro;
 };
 struct Player {
@@ -238,6 +238,7 @@ struct Player {
     float inv = 0, hitT = 0, shake = 0, downT = 0, bank = 0, pitchExtra = 0, botFire = 0; int score = 0, kills = 0, ballsShot = 0;
     V3 pos, fwd = V3(0, 0, 1), up = V3(0, 1, 0); float speed = 110, thr = 0;   // open-space flight
     int ship = 0;   // SHIPS index (lobby Up/Down)
+    V2 glance; Cam aimCam;   // right-stick glance (eased), the camera before the glance (what the guns use)
     bool tkShell = false; float crackT = 0; int cable = -1; float cableAng = 0, cableSum = 0;   // tank mode / ice planet tow cable
     float rollT = 0, charge = 0; int rollDir = 1, foxHits = 0; bool botRoll = false;   // Star Fox mode: barrel roll, charge shot
     int turret = 0; float tYaw = 0, tPitch = 0.3f;   // level 2 turret fight: 0 top / 1 bottom gun, its aim
@@ -519,7 +520,7 @@ static Dev* devById(int id); static bool pr(const Dev& d, int b);
 #include "hoth.h"
 static void playerFire(Player& p) {
     p.fireCd = 0.16f; p.gun ^= 1;
-    Cam& c = p.cam; V3 ray = c.ray(crossOff(p));
+    Cam& c = p.aimCam; V3 ray = c.ray(crossOff(p));
     // hitscan: nearest target sphere along the ray
     float bestT = 1400; int type = 0, idx = -1;
     auto test = [&](V3 cen, float rad, int ty, int i) {
@@ -1397,7 +1398,7 @@ static void drawHud(Canvas& cv, Player& p) {
     if (G.phase == PH_FOX) drawFoxHud(cv, p, u);
     else if (G.phase == PH_TANK) drawTankHud(cv, p, u);
     else if (G.phase == PH_HOTH) drawHothHud(cv, p, u);
-    else if (G.phase != PH_ESCAPE && G.phase != PH_TALLY) {
+    else if (G.phase != PH_ESCAPE && G.phase != PH_TALLY && len(p.glance) < 0.15f) {
         V2 c = V2(cx, cy) + crossOff(p); float r = 38 * u, lw = 3.0f * u;
         Col cc = p.col;
         for (int i = 0; i < 4; i++) { V2 d = fromAng(i * PI / 2 + PI / 4); V2 a = c + d * r, n = perp(d); cv.line(a, a - d * r * 0.45f + n * r * 0.0f, lw, cc); cv.line(a, a + n * r * 0.35f, lw, cc); cv.line(a, a - n * r * 0.35f, lw, cc); }
@@ -1495,7 +1496,24 @@ static void ownFrame(const Player& p, V3& pos, V3& fw, V3& rt, V3& up) {
     float t = clampf(p.zoom, 0, 1); t = t * t * (3 - 2 * t);
     pos = lerp3(cp, np, t); fw = norm3(lerp3(c.f, nf, t)); up = lerp3(c.u, nu, t); rt = norm3(cross3(up, fw)); up = cross3(fw, rt);
 }
+static void setupCamBase(Player& p);
+// right stick: look round. Cockpit views turn the head; chase views swing the camera round the ship. Eases back.
 static void setupCam(Player& p) {
+    setupCamBase(p); p.aimCam = p.cam;
+    V2 want; if (!p.bot && G.state == ST_GAME && !G.paused) { Dev* d = devById(p.dev); if (d) want = d->rs; }
+    if (getenv("VS_GLANCE") && p.idx == 0) { want = V2(); sscanf(getenv("VS_GLANCE"), "%f,%f", &want.x, &want.y); p.glance = want; }   // test
+    if (G.phase == PH_TURRET) want = V2();
+    p.glance = p.glance + (want - p.glance) * 0.12f; if (len(p.glance) < 0.002f) { p.glance = V2(); return; }
+    float yaw = p.glance.x * 2.6f, pitch = -p.glance.y * 0.9f;   // full right stick = look almost straight behind
+    Cam& c = p.cam; V3 up = c.u, f = c.f, r = c.r;
+    auto rot = [](V3 v, V3 ax, float a) { float cs = std::cos(a), sn = std::sin(a); return v * cs + cross3(ax, v) * sn + ax * (dot3(ax, v) * (1 - cs)); };
+    f = rot(f, up, yaw); r = rot(r, up, yaw); f = rot(f, r, -pitch); up = rot(up, r, -pitch);
+    if (viewThird(p) || G.phase == PH_FOX) {   // orbit round the ship
+        V3 piv = ppos(p); V3 off = c.p - piv; off = rot(off, c.u, yaw); off = rot(off, rot(c.r, c.u, yaw), -pitch); c.p = piv + off;
+    }
+    c.f = norm3(f); c.r = norm3(cross3(up, c.f)); c.u = cross3(c.f, c.r);
+}
+static void setupCamBase(Player& p) {
     V3 pos = ppos(p);
     float sh = p.shake * G.cv.px * 0.05f; if (sh > 0) pos += V3(R.range(-sh, sh), R.range(-sh, sh), 0);
     float vfov = p.vp.w > p.vp.h * 2.5f ? 0.62f : 0.95f;
@@ -1598,13 +1616,14 @@ static int navAxis(Dev& d, int axis, float dt) {
 static void readDevs(float dt, bool inGame) {
     int mx, my; Uint32 mb = SDL_GetMouseState(&mx, &my);
     for (auto& d : G.devs) {
-        memcpy(d.pb, d.b, sizeof d.b); memset(d.b, 0, sizeof d.b); d.mv = V2(); d.tl = d.tr = 0;
+        memcpy(d.pb, d.b, sizeof d.b); memset(d.b, 0, sizeof d.b); d.mv = V2(); d.rs = V2(); d.tl = d.tr = 0;
         if (d.id == -1) {
             const Uint8* k = SDL_GetKeyboardState(nullptr);
             if (k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP]) { d.mv.y -= 1; d.b[B_UP] = true; }
             if (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN]) { d.mv.y += 1; d.b[B_DOWN] = true; }
             if (k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT]) { d.mv.x -= 1; d.b[B_LEFT] = true; }
             if (k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT]) { d.mv.x += 1; d.b[B_RIGHT] = true; }
+            if (k[SDL_SCANCODE_J]) d.rs.x -= 1; if (k[SDL_SCANCODE_L]) d.rs.x += 1; if (k[SDL_SCANCODE_K]) d.rs.y += 1; if (k[SDL_SCANCODE_U]) d.rs.y -= 1;   // glance keys
             d.ml = (mb & SDL_BUTTON_LMASK) != 0;
             d.b[B_A] = k[SDL_SCANCODE_SPACE] || (!inGame && (k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_KP_ENTER])) || d.ml;
             d.b[B_B] = k[SDL_SCANCODE_BACKSPACE] || (!inGame && k[SDL_SCANCODE_ESCAPE]);
@@ -1624,6 +1643,8 @@ static void readDevs(float dt, bool inGame) {
             float m = len(st); if (m < 0.15f) st = V2(); else st = st / m * clampf((m - 0.15f) / 0.8f, 0, 1);
             V2 dp((d.b[B_RIGHT] ? 1.f : 0.f) - (d.b[B_LEFT] ? 1.f : 0.f), (d.b[B_DOWN] ? 1.f : 0.f) - (d.b[B_UP] ? 1.f : 0.f));
             d.mv = st + dp; if (len(d.mv) > 1) d.mv = norm(d.mv);
+            V2 rs(SDL_GameControllerGetAxis(d.gc, SDL_CONTROLLER_AXIS_RIGHTX) / 32767.f, SDL_GameControllerGetAxis(d.gc, SDL_CONTROLLER_AXIS_RIGHTY) / 32767.f);
+            float rm = len(rs); d.rs = rm < 0.2f ? V2() : rs / rm * clampf((rm - 0.2f) / 0.75f, 0, 1);
             d.tl = clampf(SDL_GameControllerGetAxis(d.gc, SDL_CONTROLLER_AXIS_TRIGGERLEFT) / 32767.f, 0, 1);
             d.tr = clampf(SDL_GameControllerGetAxis(d.gc, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) / 32767.f, 0, 1);
             if (d.hasGyro) { float g[3] = { 0, 0, 0 }; if (SDL_GameControllerGetSensorData(d.gc, SDL_SENSOR_GYRO, g, 3) == 0) d.gyro = V3(g[0], g[1], g[2]); }
