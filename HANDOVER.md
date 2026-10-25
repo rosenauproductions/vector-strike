@@ -6,6 +6,7 @@
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
 ## v13 BETA (25 Oct) — right-stick glance in every mode (`dist-beta/vectorstrike_beta.x86_64`, md5 6278f520...)
+**25 Oct ~10:05: v13 installed on ARCADE-21 as the only Vector Strike** - compiled from debf8c5 in the Cowork session (md5 2894e2635af3d95391424db15a735028; the cloud's dist-beta build is 6278f520, same source), plus new `modelpack/` arwing, atat, hturret, probe, speeder (23 model files). No backup kept (Chris: one game, no backups). Bot soak 4 players x 300 s in each mode (PLAY, STAR FOX, TANK BATTLE, ICE PLANET): no crashes. The share's `vectorstrike/` folder still shows `.smbdelete*` placeholders + an empty `modelpack_v7` from the v10 cleanup; macOS holds them until the share is remounted; harmless.
 Not deployed yet; no model changes since v12.
 - Right stick looks round (keyboard J / L left/right, K / U down/up): full sideways = almost straight behind, up/down ~50 degrees, eases back when released. Cockpit views turn your head (the ship stays put); chase views (and Star Fox, Ice Planet) swing the camera round the ship. Guns still fire where the ship points (`p.aimCam` = the camera before the glance); centre sights hide while glancing. Not in the level 2 gun turret (there the stick already aims).
 - Test switch `VS_GLANCE=x,y`.
