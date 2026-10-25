@@ -4,11 +4,12 @@ Low-poly look: quadric-decimate to --faces, then keep sharp feature edges (> --a
 --matrix: 3x3 rotation (rows = new x,y,z axes) so the model faces +z (forward) with +y up.
 --sphere NODE: that node is a smooth sphere: replace it with latitude/longitude rings and an equatorial trench,
   keep feature edges of everything else (Death Star dish).
+--keep-x X: keep only edges with |x| > X (the cockpit view's wings and cannons, drawn at full detail).
 .vsm text: 'v x y z' (centred, longest half-extent = 1) and 'e a b' lines."""
 import argparse, numpy as np, trimesh
 ap = argparse.ArgumentParser(); ap.add_argument('inp'); ap.add_argument('out')
 ap.add_argument('--angle', type=float, default=28); ap.add_argument('--faces', type=int, default=1600); ap.add_argument('--max', type=int, default=1100)
-ap.add_argument('--skip', default=''); ap.add_argument('--matrix', default=''); ap.add_argument('--sphere', default=''); ap.add_argument('--preview', default=''); ap.add_argument('--greeble', type=int, default=0); ap.add_argument('--seed', type=int, default=7)
+ap.add_argument('--skip', default=''); ap.add_argument('--matrix', default=''); ap.add_argument('--sphere', default=''); ap.add_argument('--preview', default=''); ap.add_argument('--greeble', type=int, default=0); ap.add_argument('--seed', type=int, default=7); ap.add_argument('--keep-x', type=float, default=0)
 a = ap.parse_args()
 s = trimesh.load(a.inp, force='scene'); parts = []; sph = None
 for name in s.graph.nodes_geometry:
@@ -74,6 +75,7 @@ if sph is not None:
             pts += [sp(la, lo, h), sp(la, lo + dlo * 2, h), sp(la + dla * 2, lo, h)]; ed += [(b, b + 1), (b, b + 2)]
     V.append(np.array(pts)); E.append(np.array(ed))
 V = np.vstack(V); E = np.vstack(E)
+if a.keep_x > 0: E = E[(np.abs(V[E[:, 0], 0]) > a.keep_x) & (np.abs(V[E[:, 1], 0]) > a.keep_x)]   # cockpit set: only the outer wings / cannons
 L = np.linalg.norm(V[E[:, 0]] - V[E[:, 1]], axis=1); E = E[L > 0.003]; L = L[L > 0.003]
 if len(E) > a.max: E = E[np.argsort(-L)[:a.max]]
 used = np.unique(E); remap = -np.ones(len(V), int); remap[used] = np.arange(len(used)); V = V[used]; E = remap[E]
