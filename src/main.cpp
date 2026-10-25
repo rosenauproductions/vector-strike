@@ -69,9 +69,11 @@ static void blob3(Canvas& cv, const Cam& cam, V3 p, float r, Col c, float minPx 
 }
 
 // ---------------------------------------------------------------- models
-struct Model { std::vector<V3> v; std::vector<int> e; std::vector<V3> n; bool sorted = false;   // n: 2 face normals per edge (zero = always drawn)
+struct Model { std::vector<V3> v; std::vector<int> e; std::vector<V3> n; bool sorted = false; const Model* far = nullptr;   // far: decimated stand-in once small on screen
+      // n: 2 face normals per edge (zero = always drawn)
     void E(std::initializer_list<int> l) { for (int x : l) e.push_back(x); } };
 static Model M_FIGHTER, M_SHIP, M_CITADEL, M_TURRET, PK_PLAYER, PK_ENEMY, PK_STATION, PK_COCKPIT, PK_YWING, PK_FALCON, PK_DESTROYER, PK_TRENCH, PK_BWING, PK_BWING_CK;
+static Model PK_FAR[6];   // *_far.vsm: player, enemy, ywing, bwing, falcon, destroyer
 // PK_TRENCH: one repeating tile of trench walls/floor (tools/trench_tile.py)
 // battle station radius (true scale would be ~70000: from close in that reads as a flat wall)
 // PK_COCKPIT / PK_BWING_CK: full-detail outer wings + cannons for the cockpit views; TRENCH_LINES: trench-tile lines up close (longest first)
@@ -141,6 +143,7 @@ static void drawModelRU(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 f
     size_t ne = m.e.size();
     if (m.sorted) {   // level of detail: the longest edges first, fewer when small on screen (player ships keep more: whole body up close)
         V3 cc = cam.toCam(pos); if (cc.z < -s * 1.5f) return;
+        if (cc.z > 1 && m.far && s * cam.foc / cc.z < 70) { drawModelRU(cv, cam, *m.far, pos, fw, rt, up, s, c, w, glow); return; }
         if (cc.z > 1) { float rpx = s * cam.foc / cc.z; ne = std::min(ne, (size_t)(FULL_DETAIL ? (rpx < 6 ? 200 : std::max(300, (int)(rpx * 12))) : std::max(40, (int)(rpx * 8))) * 2); glow *= rpx < 25 ? 0.5f : 0.35f; w *= 0.85f; }
     }
     for (size_t i = 0; i + 1 < ne; i += 2) {
@@ -1725,6 +1728,8 @@ int main(int argc, char** argv) {
         if (loadVsm(md + "ywing.vsm", PK_YWING)) NSHIPS = 2;
         if (NSHIPS == 2 && loadVsm(md + "bwing.vsm", PK_BWING)) { NSHIPS = 3; loadVsm(md + "bwing_ck.vsm", PK_BWING_CK); }
         loadVsm(md + "falcon.vsm", PK_FALCON); loadVsm(md + "destroyer.vsm", PK_DESTROYER);
+        { const char* fn[6] = { "player_far", "enemy_far", "ywing_far", "bwing_far", "falcon_far", "destroyer_far" }; Model* full[6] = { &PK_PLAYER, &PK_ENEMY, &PK_YWING, &PK_BWING, &PK_FALCON, &PK_DESTROYER };
+          for (int i = 0; i < 6; i++) if (!full[i]->v.empty() && !getenv("VS_NOFAR") && loadVsm(md + fn[i] + ".vsm", PK_FAR[i])) full[i]->far = &PK_FAR[i]; }
         if (loadVsm(md + "trench.vsm", PK_TRENCH)) { for (auto& v : PK_TRENCH.v) TRENCH_TILE = std::max(TRENCH_TILE, v.z); }
         if (loadVsm(md + "station.vsm", PK_STATION)) { MS = &PK_STATION; S_STATION = 1.0f; }
     }
