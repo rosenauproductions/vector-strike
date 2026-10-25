@@ -236,7 +236,7 @@ struct Player {
     bool tailNow = false; float tailHold = 0, tailDist = 0, camBack = 0; std::string msg; float msgT = 0;   // enemy-on-your-tail state
     SDL_Rect vp = { 0, 0, 0, 0 }; Cam cam;
 };
-struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5, trench = 2; bool radar = true; int best = 0, bestWave = 0; };
+struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5, trench = 1; bool radar = true; int best = 0, bestWave = 0; };
 static float turnMul();
 
 struct Game {
@@ -731,7 +731,7 @@ static void botThink(Player& p, float dt, V2& desired, bool& fire) {
             else desired = V2(c.x >= 0 ? 1.f : -1.f, 0.3f);
         }
         V3 ds = me - G.stC; if (!G.approach && len3(ds) < G.stR + 400) desired.y = 1;   // pull away from the station
-        p.thr = best < 300 ? -0.5f : 0.2f;
+        p.thr = best < 150 ? -0.3f : 0.6f;   // bots keep the pace up on the run in
         (void)dt; return;
     }
     // aim at the most urgent target, dodge catwalks
