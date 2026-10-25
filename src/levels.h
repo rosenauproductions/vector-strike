@@ -245,7 +245,7 @@ static void setupTunnel() {
     addBeams(G.tunLen + 520, G.tunLen + 320 + G.outLen - 250, gap * 1.3f, gap * 2.4f);
     V3 c0; float hw, hh; tunFrame(0, c0, hw, hh);
     for (auto& p : G.pl) if (p.joined) { p.x = c0.x + clampf(p.x, -16, 16); p.y = c0.y + clampf(p.y, -12, 12); p.zoff = -12.f * p.idx; }
-    int nt = 10 + 3 * G.wave;
+    int nt = foeN(10 + 3 * G.wave);
     for (int i = 0; i < nt; i++) {
         Enemy e; e.kind = EN_TURRET; e.side = R.f() < 0.5f ? -1 : 1; float z = R.range(400, G.tunLen - 600); V3 c; tunFrame(z, c, hw, hh);
         e.p = c + V3(e.side * (hw - 1.5f), R.range(-0.6f, 0.6f) * hh, 0); e.cd = R.range(0.5f, 2.5f); G.en.push_back(e);
@@ -361,7 +361,7 @@ static void setupTurret() {
     setupAsteroids();
     G.falP = V3(0, 0, -7500); G.falSpeed = 95; G.turretDoneT = -1;
     int np = std::max(1, joinedCount());
-    G.killsDone = 0; G.killsNeeded = (int)((5 + 2 * G.wave) * (1 + 0.35f * (np - 1))); G.spawnT = 2.5f; G.aceCd = 1e9f;
+    G.killsDone = 0; G.killsNeeded = foeN((5 + 2 * G.wave) * (1 + 0.35f * (np - 1))); G.spawnT = 2.5f; G.aceCd = 1e9f;
     for (auto& p : G.pl) if (p.joined) { p.turret = p.idx & 1; p.tYaw = (p.idx >= 2) ? PI : 0; p.tPitch = 0.3f; p.pos = G.falP; p.fwd = V3(0, 0, 1); p.up = V3(0, 1, 0); p.speed = G.falSpeed; p.zoom = 0; }
     char b[64]; snprintf(b, sizeof b, "MAN THE GUNS - %d FIGHTERS INCOMING", G.killsNeeded);
     setBanner("LEVEL 2 - WAVE " + std::to_string(G.wave), b, 3.5f);
@@ -490,13 +490,13 @@ static void updateEscortRun(float dt) {
         int alive = 0; for (auto& f : G.en) if (!f.dead && f.kind == EN_FIGHTER && !f.ace) alive++;
         G.escWaveT -= dt;
         if (G.escWaveT <= 0 && alive < 2 && G.escWaveLeft <= 0) {
-            G.escWaveLeft = 3 + G.wave / 2 + joinedCount() / 2; G.escWaveT = 14; G.spawnT = 0.3f;
+            G.escWaveLeft = foeN(3 + G.wave / 2 + joinedCount() / 2); G.escWaveT = 14; G.spawnT = 0.3f;
             setBanner("FIGHTERS INBOUND", "PICK THEM OFF THE BOMBERS", 2.0f); AU.play(SND_ALARM, 0.4f, 0, 1.2f, 700);
         }
     }
     float dropZ = G.runLen - 2400;
     if (G.escStage == 0 && (escortsAlive() == 0 || (G.esc.size() && std::max(G.esc[0].z, G.esc.size() > 1 ? G.esc[1].z : 0.f) > dropZ))) {
-        G.escStage = 1; G.escT = 0; G.killsDone = 0; G.killsNeeded = 4 + G.wave + joinedCount(); G.aceCd = 6;
+        G.escStage = 1; G.escT = 0; G.killsDone = 0; G.killsNeeded = foeN(4 + G.wave + joinedCount()); G.aceCd = 6;
         if (escortsAlive()) setBanner("BOMBERS: GOING IN FOR OUR RUN", "COVER US - HOLD OFF THOSE FIGHTERS", 3.0f);
         else setBanner("NO BOMBERS LEFT", "HOLD OFF THOSE FIGHTERS", 3.0f);
         printf("game: bombers break off (%d left), cover fight\n", escortsAlive());

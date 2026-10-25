@@ -253,7 +253,7 @@ struct Player {
     bool tailNow = false; float tailHold = 0, tailDist = 0, camBack = 0; std::string msg; float msgT = 0;   // enemy-on-your-tail state
     SDL_Rect vp = { 0, 0, 0, 0 }; Cam cam;
 };
-struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5, trench = 1; bool radar = true; int best = 0, bestWave = 0; bool rails = false; };
+struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5, trench = 1; bool radar = true; int best = 0, bestWave = 0; bool rails = false; int foes = 1; };   // foes: ENEMY WAVES 0 fewer / 1 normal / 2 more / 3 lots
 static float turnMul();
 
 struct Game {
@@ -288,7 +288,7 @@ struct Game {
 // ---------------------------------------------------------------- config
 static void saveCfg() {
     FILE* f = fopen(G.cfgPath.c_str(), "w"); if (!f) return;
-    fprintf(f, "res=%d\nglow=%d\nshake=%d\nsfx=%d\nmusic=%d\ninvert=%d\nturn=%d\nchase=%d\ntrench=%d\nradar=%d\nbest=%d\nbest_wave=%d\nrails=%d\n", G.opt.res, G.opt.glow, G.opt.shake, G.opt.sfx, G.opt.mus, G.opt.invert, G.opt.turn, G.opt.chase, G.opt.trench, G.opt.radar, G.opt.best, G.opt.bestWave, G.opt.rails);
+    fprintf(f, "res=%d\nglow=%d\nshake=%d\nsfx=%d\nmusic=%d\ninvert=%d\nturn=%d\nchase=%d\ntrench=%d\nradar=%d\nbest=%d\nbest_wave=%d\nrails=%d\nfoes=%d\n", G.opt.res, G.opt.glow, G.opt.shake, G.opt.sfx, G.opt.mus, G.opt.invert, G.opt.turn, G.opt.chase, G.opt.trench, G.opt.radar, G.opt.best, G.opt.bestWave, G.opt.rails, G.opt.foes);
     fclose(f);
 }
 static void loadCfg() {
@@ -298,11 +298,13 @@ static void loadCfg() {
         std::string s = k;
         if (s == "res") G.opt.res = (int)clampf((float)v, 0, 4); else if (s == "glow") G.opt.glow = v != 0; else if (s == "shake") G.opt.shake = v != 0;
         else if (s == "sfx") G.opt.sfx = (int)clampf((float)v, 0, 10); else if (s == "music") G.opt.mus = (int)clampf((float)v, 0, 10);
-        else if (s == "invert") G.opt.invert = v != 0; else if (s == "turn") G.opt.turn = (int)clampf((float)v, 1, 10); else if (s == "chase") G.opt.chase = (int)clampf((float)v, 1, 10); else if (s == "trench") G.opt.trench = (int)clampf((float)v, 0, 2); else if (s == "radar") G.opt.radar = v != 0; else if (s == "rails") G.opt.rails = v != 0;
+        else if (s == "invert") G.opt.invert = v != 0; else if (s == "turn") G.opt.turn = (int)clampf((float)v, 1, 10); else if (s == "chase") G.opt.chase = (int)clampf((float)v, 1, 10); else if (s == "trench") G.opt.trench = (int)clampf((float)v, 0, 2); else if (s == "radar") G.opt.radar = v != 0; else if (s == "rails") G.opt.rails = v != 0; else if (s == "foes") G.opt.foes = (int)clampf((float)v, 0, 3);
         else if (s == "best") G.opt.best = (int)v; else if (s == "best_wave") G.opt.bestWave = (int)v;
     }
     fclose(f);
 }
+static float foeMul() { static const float k[4] = { 0.6f, 1.f, 1.5f, 2.1f }; return k[std::max(0, std::min(3, G.opt.foes))]; }   // ENEMY WAVES option
+static int foeN(float n) { return std::max(1, (int)std::lround(n * foeMul())); }
 static float turnMul() { return 0.5f + 0.1f * G.opt.turn; }   // 1..10, 5 = normal
 static float chaseMul() { return 0.4f + 0.12f * G.opt.chase; }   // 1..10 -> 0.52x .. 1.6x of the default chase distance
 static void applyAudioVol() { AU.sfxVol = G.opt.sfx / 10.f; AU.musVol = G.opt.mus / 10.f * 0.85f; }
@@ -390,7 +392,7 @@ static void beginPhase(int ph) {
     int np = std::max(1, joinedCount());
     switch (ph) {
     case PH_SPACE: {
-        G.speed = 0; G.killsDone = 0; G.killsNeeded = (int)((5 + 2 * G.wave) * (1 + 0.45f * (np - 1))); G.spawnT = 1.0f; G.citBoom = false; G.approach = false;
+        G.speed = 0; G.killsDone = 0; G.killsNeeded = foeN((5 + 2 * G.wave) * (1 + 0.45f * (np - 1))); G.spawnT = 1.0f; G.citBoom = false; G.approach = false;
         G.runLen = 9000 + 1500.f * std::min(G.wave - 1, 6);   // a long run in to the battle station's surface
         G.caps.clear(); G.ally = Game::Ally();
         G.stR = ST_RADIUS; G.stC = V3(0, 0, G.runLen + G.stR);
@@ -421,7 +423,7 @@ static void beginPhase(int ph) {
         while (zz < G.z + G.surfLen) {
             int k = 1 + (R.f() < 0.25f + 0.04f * G.wave ? 1 : 0);
             for (int i = 0; i < k; i++) { Enemy e; e.kind = EN_TOWER; e.h = R.range(18, 58); e.p = V3(R.range(-135, 135), GROUND_Y + e.h, zz + R.range(-15, 15)); e.cd = R.range(0.5f, 2.0f); G.en.push_back(e); }
-            zz += R.range(70, 120) / std::min(1.6f, 0.9f + 0.08f * G.wave);
+            zz += R.range(70, 120) / std::min(1.6f, 0.9f + 0.08f * G.wave) / foeMul();
         }
         setBanner("SURFACE ASSAULT", "SHOOT THE TOWER TOPS - FLY HIGH OVER THEM");
         break;
@@ -430,7 +432,7 @@ static void beginPhase(int ph) {
         G.speed = G.baseSpeed = 165 + 11.f * G.wave; G.trenchZ0 = G.z; G.trenchLen = 5600 + 560.f * std::min(G.wave, 8); G.portHit = false; G.portBy = -1;   // long run: ~35 s at wave 1
         for (auto& p : G.pl) if (p.joined) { p.x = clampf(p.x, -16, 16); p.zoff = -12.f * p.idx; p.expT = 0; p.gunCd = 0; }
         G.chaseOn = false; G.chaseDone = false; G.ally.shown = false;
-        int nt = 12 + 4 * G.wave;
+        int nt = foeN(12 + 4 * G.wave);
         for (int i = 0; i < nt; i++) { Enemy e; e.kind = EN_TURRET; e.side = R.f() < 0.5f ? -1 : 1; e.p = V3(e.side * (TR_W - 1.5f), R.range(-36, -8), G.trenchZ0 + R.range(350, G.trenchLen - 250)); e.cd = R.range(0.5f, 2.5f); G.en.push_back(e); }
         int nc = G.wave >= 2 ? std::min(32, 4 + (G.wave - 2) * 4) : 0;
         for (int i = 0; i < nc; i++) {
@@ -675,7 +677,7 @@ static void spawnFighterNear(Enemy& e) {
 }
 static void updateFighters(float dt) {
     int alive = 0; for (auto& e : G.en) if (!e.dead && e.kind == EN_FIGHTER && !e.ace) alive++;
-    int maxSim = std::min(8, 2 + G.wave / 2 + joinedCount());
+    int maxSim = std::max(1, (int)std::lround(std::min(8, 2 + G.wave / 2 + joinedCount()) * foeMul()));
     G.spawnT -= dt;
     float toSurf = len3(G.stC - squadCenter()) - G.stR;
     if (G.phase == PH_ASTEROIDS) toSurf = G.hyperT < 0 ? 1e9f : 0;
@@ -684,7 +686,7 @@ static void updateFighters(float dt) {
     if (G.phase == PH_SPACE && G.level == 1 && G.escStage == 1) toSurf = G.killsDone + alive < G.killsNeeded ? 1e9f : 0;
     if (G.phase == PH_SPACE && G.level == 1 && G.escStage == 2) toSurf = 0;
     if (G.spawnT <= 0 && alive < maxSim && toSurf > 1500) {   // they keep coming until you're on top of the station
-        G.spawnT = R.range(0.8f, 1.6f);
+        G.spawnT = R.range(0.8f, 1.6f) / foeMul();
         Enemy e; e.kind = EN_FIGHTER; e.hp = G.wave >= 4 ? 2.f : 1.f; e.cd = R.range(1.5f, 3.0f); e.weave = R.range(0, 6.28f);
         spawnFighterNear(e); G.en.push_back(e); if (G.escWaveLeft > 0) G.escWaveLeft--;
     }
@@ -1798,7 +1800,7 @@ static void updateMenus(float dt) {
         break;
     case ST_HELP: if (m.a || m.b || m.start) { G.state = ST_TITLE; G.menuSel = 4; AU.play(SND_UI, 0.6f); } break;
     case ST_OPTIONS: {
-        if (m.y) { G.menuSel = (G.menuSel + m.y + 11) % 11; AU.play(SND_UI, 0.6f); }
+        if (m.y) { G.menuSel = (G.menuSel + m.y + 12) % 12; AU.play(SND_UI, 0.6f); }
         int dx = m.x + (m.a ? 1 : 0);
         if (dx) {
             AU.play(SND_UI, 0.6f);
@@ -1813,7 +1815,8 @@ static void updateMenus(float dt) {
             case 7: G.opt.chase = (int)clampf((float)(G.opt.chase + (m.a ? 0 : dx)), 1, 10); break;
             case 8: G.opt.trench = (G.opt.trench + dx + 3) % 3; break;
             case 9: G.opt.radar = !G.opt.radar; break;
-            case 10: if (m.a) { saveCfg(); G.state = ST_TITLE; G.menuSel = 5; } break;
+            case 10: G.opt.foes = (G.opt.foes + dx + 4) % 4; break;
+            case 11: if (m.a) { saveCfg(); G.state = ST_TITLE; G.menuSel = 5; } break;
             }
             applyAudioVol();
         }
@@ -1884,16 +1887,17 @@ static void renderMenus(Canvas& cv) {
     }
     case ST_OPTIONS: {
         FONT.draw(cv, "OPTIONS", V2(cx, 110 * u), 50 * u, C_PORT, 1, 0, 1.1f);
-        char l[11][64];
+        char l[12][64];
         snprintf(l[0], 64, "RESOLUTION  %s", RESNAMES[G.opt.res]); snprintf(l[1], 64, "GLOW  %s", G.opt.glow ? "ON" : "OFF");
         snprintf(l[2], 64, "SCREEN SHAKE  %s", G.opt.shake ? "ON" : "OFF"); snprintf(l[3], 64, "SOUND  %d", G.opt.sfx); snprintf(l[4], 64, "MUSIC  %d", G.opt.mus);
         snprintf(l[5], 64, "INVERT STICK  %s", G.opt.invert ? "ON - PULL BACK TO CLIMB" : "OFF"); snprintf(l[6], 64, "TURN SPEED  %d", G.opt.turn);
         { char bar[11]; for (int i = 0; i < 10; i++) bar[i] = i < G.opt.chase ? '=' : '-'; bar[10] = 0; snprintf(l[7], 64, "CHASE DISTANCE  %s  %d", bar, G.opt.chase); }
         { const char* TD[3] = { "OFF", "LOW", "HIGH" }; snprintf(l[8], 64, "TRENCH DETAIL  %s", TD[G.opt.trench]); }
         snprintf(l[9], 64, "RADAR  %s", G.opt.radar ? "ON" : "OFF");
-        snprintf(l[10], 64, "BACK");
-        const char* items[11] = { l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7], l[8], l[9], l[10] };
-        menuList(cv, items, 11, G.menuSel, cx, G.H * 0.2f, 30 * u, 48 * u);
+        { const char* FN[4] = { "FEWER", "NORMAL", "MORE", "LOTS" }; snprintf(l[10], 64, "ENEMY WAVES  %s", FN[G.opt.foes]); }
+        snprintf(l[11], 64, "BACK");
+        const char* items[12] = { l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7], l[8], l[9], l[10], l[11] };
+        menuList(cv, items, 12, G.menuSel, cx, G.H * 0.19f, 29 * u, 45 * u);
         char info[120]; snprintf(info, sizeof info, "DISPLAY %d X %d   RENDERING %d X %d", G.outW, G.outH, G.W, G.H);
         FONT.draw(cv, info, V2(cx, G.H - 100 * u), 15 * u, withA(C_DIM, 0.9f), 1);
         FONT.draw(cv, "LEFT / RIGHT TO CHANGE.  YOUR OWN MUSIC.WAV AND SOUNDS/*.WAV IN THE GAME FOLDER REPLACE THE BUILT-IN AUDIO", V2(cx, G.H - 60 * u), 15 * u, withA(C_DIM, 0.9f), 1);

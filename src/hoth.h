@@ -59,9 +59,9 @@ static bool wkHit(const Walker& w, V3 q, float pad) {
 static void hothSetup() {
     prepAtatLegs();
     WK.clear(); PRB.clear(); G.balls.clear(); G.genHp = 100;
-    int nw = std::min(5, 1 + G.wave);
+    int nw = std::min(6, foeN(std::min(5, 1 + G.wave)));
     for (int i = 0; i < nw; i++) { Walker w; w.p = V3((i - (nw - 1) * 0.5f) * 260 + R.range(-40, 40), 0, 2600 + R.range(0, 900) + i * 120); w.f = V3(0, 0, -1); w.t = R.range(0, 6); w.cd = R.range(2, 5); WK.push_back(w); }
-    for (int i = 0; i < 2 + G.wave; i++) { Probe p; p.p = V3(R.range(-500, 500), R.range(15, 45), R.range(1200, 2600)); p.t = R.range(0, 6); PRB.push_back(p); }
+    for (int i = 0; i < foeN(2 + G.wave); i++) { Probe p; p.p = V3(R.range(-500, 500), R.range(15, 45), R.range(1200, 2600)); p.t = R.range(0, 6); PRB.push_back(p); }
     if (HTU.empty() || G.wave == STARTWAVE[G.startSel]) { HTU.clear(); for (int i = 0; i < 6; i++) { HTurret t; t.p = V3((i - 2.5f) * 120, 0, 260 + (i % 2) * 70); HTU.push_back(t); } }
     int k = 0;
     for (auto& p : G.pl) if (p.joined) { p.pos = V3((k - 1.5f) * 25, 18, 120); p.fwd = V3(0, 0, 1); p.up = V3(0, 1, 0); p.speed = 90; p.cable = -1; p.zoom = -1; k++; }

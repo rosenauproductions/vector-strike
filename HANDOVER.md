@@ -5,6 +5,11 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v15 BETA (25 Oct, cloud session) — ENEMY WAVES setting (`dist-beta/vectorstrike_beta.x86_64`, md5 08c8a203... built on v14)
+Not deployed yet; no model changes.
+- Options -> ENEMY WAVES: FEWER / NORMAL / MORE / LOTS = x0.6 / x1 / x1.5 / x2.1 (`foes=` in vectorstrike.cfg, `foeMul()` / `foeN()` in main.cpp). Scales, in every mode: fighters on screen at once and how fast they come, kill quotas (space, turret fight, escort cover, tank waves), the escort's attack waves, trench / tunnel wall turrets, surface tower density, Star Fox drone flights and tanks, Ice Planet walkers (max 6) and probe droids.
+- Checked: tank wave quota 5 / 8 / 17 and trench enemies 10 / 16 / 34 for FEWER / NORMAL / LOTS. Soak on LOTS, 4 bots x 300 s in all four modes: no crashes. Perf note: LOTS in 4-player space measured 19 fps on the cloud's software renderer (NORMAL ~29); on the box use MORE if LOTS stutters.
+
 ## v14 (25 Oct, Cowork session) — Wii remotes point-and-shoot + ON RAILS mode
 **25 Oct ~15:35: installed on ARCADE-21 as the only Vector Strike** (md5 dce3418a436d269a4ac07b19c6131c39, no backup; model pack unchanged). Not yet run on the box.
 - `src/wii/` = the Wii Lab (Controller Lab) v0.1 driver: Dolphin-style own Bluetooth search + raw L2CAP 0x11/0x13, a reader thread per remote, report mode 0x33 (buttons+accel+12-byte IR). Changes: no speaker in the simulator, `leds` action takes the mask, and with no adapter the search idles (looks again every 10 s) instead of spinning.

@@ -49,14 +49,14 @@ static void foxSetup() {
     for (float z = L * 0.6f; z < L * 0.88f; z += R.range(45, 85)) { FoxObj o; o.kind = FO_PILLAR; o.w = R.range(7, 12); o.h = R.range(90, 160); o.p = V3(R.range(-90, 90), FOX_GROUND, z); FOXO.push_back(o); }
     for (int i = 0; i < 6; i++) { FoxObj r; r.kind = FO_RING; r.w = 9; r.p = V3(R.range(-60, 60), R.range(-25, 40), L * (0.12f + 0.13f * i)); FOXO.push_back(r); }
     // ground tanks along the way
-    for (float z = 600; z < L * 0.85f; z += R.range(250, 450)) { FoxEn e; e.kind = FE_TANK; e.p = V3(R.range(-80, 80), FOX_GROUND, z); e.hp = 2; e.cd = R.range(1, 3); FOXE.push_back(e); }
+    for (float z = 600; z < L * 0.85f; z += R.range(250, 450) / foeMul()) { FoxEn e; e.kind = FE_TANK; e.p = V3(R.range(-80, 80), FOX_GROUND, z); e.hp = 2; e.cd = R.range(1, 3); FOXE.push_back(e); }
     G.foxWaveZ = 400;
     for (auto& p : G.pl) if (p.joined) { p.rollT = 0; p.charge = 0; p.zoom = -1; }
     setBanner("STAR FOX MODE - COURSE " + std::to_string(G.wave), "CLEAR THE WAY TO THE CARRIER", 3.5f);
 }
 // a flight of drones comes in from ahead in a V, or sweeps across the course
 static void foxSpawnWave() {
-    int n = 4 + std::min(4, G.wave / 2) + joinedCount() / 2, pat = R.i(3);
+    int n = foeN(4 + std::min(4, G.wave / 2) + joinedCount() / 2), pat = R.i(3);
     float zc = G.z + 900, xc = R.range(-50, 50), yc = R.range(-15, 40);
     for (int i = 0; i < n; i++) {
         FoxEn e; e.kind = FE_DRONE; e.hp = G.wave >= 4 ? 2 : 1; e.cd = R.range(1.5f, 3.5f); e.ph = i * 0.6f; e.side = pat;
@@ -130,7 +130,7 @@ static void foxFire(Player& p) {
 
 static void foxUpdate(float dt) {
     // enemy flights
-    if (!G.foxBoss) { while (G.z + 900 > G.foxWaveZ && G.foxWaveZ < G.foxLen - 400) { foxSpawnWave(); G.foxWaveZ += R.range(700, 1050) / std::min(1.6f, 0.9f + 0.07f * G.wave); } }
+    if (!G.foxBoss) { while (G.z + 900 > G.foxWaveZ && G.foxWaveZ < G.foxLen - 400) { foxSpawnWave(); G.foxWaveZ += R.range(700, 1050) / foeMul() / std::min(1.6f, 0.9f + 0.07f * G.wave); } }
     if (!G.foxBoss && G.z > G.foxLen) foxSpawnBoss();
     if (G.foxBoss && G.foxClearT < 0) { G.foxBossT += dt; G.foxBossX = 45 * std::sin(G.foxBossT * 0.5f); G.foxBossY = 18 + 18 * std::sin(G.foxBossT * 0.37f);
         if ((int)(G.foxBossT / 7) != (int)((G.foxBossT - dt) / 7)) foxSpawnWave(); }

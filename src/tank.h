@@ -47,7 +47,7 @@ static void tankSetup() {
     buildTankModels();
     if (TKO.empty()) for (int i = 0; i < 70; i++) { TankObj o; o.kind = R.i(3); o.s = R.range(14, 30); o.p = V3(R.range(-TK_TILE / 2, TK_TILE / 2), 0, R.range(-TK_TILE / 2, TK_TILE / 2)); if (len3(o.p) > 150) TKO.push_back(o); }
     TKE.clear(); TKS.clear();
-    G.killsDone = 0; G.killsNeeded = 6 + 2 * G.wave + 2 * (joinedCount() - 1); G.spawnT = 2; G.tkSaucerT = R.range(25, 45);
+    G.killsDone = 0; G.killsNeeded = foeN(6 + 2 * G.wave + 2 * (joinedCount() - 1)); G.spawnT = 2; G.tkSaucerT = R.range(25, 45);
     int k = 0;
     for (auto& p : G.pl) if (p.joined) {
         if (p.pos.y != 0 || G.wave == STARTWAVE[G.startSel]) { p.pos = V3((k - 1.5f) * 40, 0, 0); p.fwd = V3(0, 0, 1); }
@@ -93,7 +93,7 @@ static void tankPlayer(Player& p, float dt, bool fire) {
 }
 static void tankUpdate(float dt) {
     int alive = 0; for (auto& e : TKE) if (!e.dead && e.kind != TE_SAUCER) alive++;
-    int maxSim = std::min(6, 1 + G.wave / 2 + joinedCount() / 2);
+    int maxSim = std::min(8, foeN(std::min(6, 1 + G.wave / 2 + joinedCount() / 2)));
     G.spawnT -= dt;
     if (G.spawnT <= 0 && alive < maxSim && G.killsDone + alive < G.killsNeeded) {
         G.spawnT = R.range(2, 4);
