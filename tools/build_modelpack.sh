@@ -24,3 +24,8 @@ python3 $C $A/star_destroyer.glb $M/destroyer_far.vsm --matrix "$FLIP" --faces 2
 python3 $C $A/tie_advanced.glb $M/ace.vsm --faces 12000 --max 3500 --angle 40   # enemy ace (TIE Advanced)
 python3 $C $A/tie_advanced.glb $M/ace_far.vsm --faces 1500 --max 600 --angle 35
 python3 $C $A/arwing.glb $M/arwing.vsm --faces 5000 --max 3000 --angle 1   # Star Fox mode ship (30 faces: keep every edge)
+# ICE PLANET mode (Chris's models)
+python3 $C $A/imperial_atat.glb $M/atat.vsm --faces 16000 --max 4000 --angle 35
+python3 $C $A/star_wars_t-47_airspeeder__snowspeeder.glb $M/speeder.vsm --faces 12000 --max 3000 --angle 35
+python3 $C $A/arakyd_viper_probe_droid.glb $M/probe.vsm --faces 6000 --max 1500 --angle 35
+python3 $C $A/hoth_defense_turret_-_star_wars.glb $M/hturret.vsm --faces 2600 --max 1200 --angle 35

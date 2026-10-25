@@ -16,6 +16,7 @@ s = trimesh.load(a.inp, force='scene'); parts = []; sph = None
 for name in s.graph.nodes_geometry:
     T, g = s.graph[name]
     if a.skip and any(k.lower() in name.lower() for k in a.skip.split(',')): continue
+    if not hasattr(s.geometry[g], 'faces'): continue   # skip curves / lines in the file
     m = s.geometry[g].copy(); m.apply_transform(T)
     if a.sphere and a.sphere.lower() in name.lower(): sph = m; continue
     parts.append(m)

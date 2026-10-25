@@ -5,6 +5,14 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v12 BETA (25 Oct, cloud session) — TANK BATTLE + ICE PLANET modes (`dist-beta/vectorstrike_beta.x86_64`, md5 e8d9a39c...)
+Not deployed yet. Copy the beta binary plus the new `modelpack/atat.vsm`, `speeder.vsm`, `probe.vsm`, `hturret.vsm` (from Chris's GLBs in `assets_src/`, rebuilt by `tools/build_modelpack.sh`).
+Title menu is now PLAY / STAR FOX MODE / TANK BATTLE / ICE PLANET / HOW TO PLAY / OPTIONS / QUIT (`G.mode` 0-3).
+- **TANK BATTLE** (`src/tank.h`, Battlezone style): endless green wireframe plain with cubes and pyramids (wrapped round you), mountains, a smoking volcano and the moon on the horizon. Stick up/down drives, left/right turns; fire = a shell (one in flight at a time, like the original); Y = chase view. Enemies: tanks (1000), fast super tanks from wave 3 (3000), zig-zag ground missiles from wave 2 (2000, 2 shield hits), a harmless saucer (5000). Radar sweep at the top with ENEMY IN RANGE / TO LEFT / RIGHT / REAR, cracked-glass flash when you're hit. Destroy the quota -> tally -> next wave.
+- **ICE PLANET** (`src/hoth.h`, Empire Strikes Back battle): snowspeeders (fly low, chase view; Y = cockpit) against AT-ATs marching on the shield generator. The AT-AT model's legs are split off at load (`prepAtatLegs`) and swing from the hips in a diagonal gait. Lasers bounce off walkers ("ARMOUR TOO STRONG - USE THE TOW CABLE"): get low and close, press X (keyboard R) for the tow cable, then circle the walker twice (loops counter, cable wraps drawn round the legs; it snaps beyond 190) -> it topples and explodes (+5000). Probe droids can be shot (500). Rebel turrets near the generator plink at the walkers (they can be destroyed). The walkers' guns wear the generator down (bar at the top) and a walker reaching it ends the game. All walkers down -> tally -> next wave (one more walker, max 5).
+- Bug fixed: the lobby's mode hint line (added in v11) was never drawn.
+- Test switch `VS_MODE=0..3`. Perf (cloud software GL, 4 players 1080p): tank 63 fps, ice planet ~28 (our code is <10% of that; the rest is the software rasterizer). Soak: 4 bots, tank to wave 3, ice planet to wave 4 (9 walkers tripped), no crashes.
+
 ## v11 BETA (25 Oct, cloud session) — STAR FOX MODE (`dist-beta/vectorstrike_beta.x86_64`, md5 5da21ada...)
 Not deployed yet. Copy the beta binary plus the new `modelpack/arwing.vsm` (from Chris's `assets_src/arwing.glb`, low-poly SNES fighter; every edge kept).
 - Title menu: PLAY / **STAR FOX MODE** / HOW TO PLAY / OPTIONS / QUIT. Code: `src/fox.h` (+ hooks in main.cpp, `G.mode` 1).
