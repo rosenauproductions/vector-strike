@@ -1,9 +1,19 @@
-# Vector Strike — handover (25 Oct 2026)
+# Vector Strike — handover (25 Oct 2026, v9)
 
 **Code lives on GitHub: `rosenauproductions/vector-strike` (private, branch main).** Cloud sessions: add_repo it and read CLAUDE.md + HANDOVER.md in the repo (HANDOVER.md there is the canonical copy of this doc). Pushed 24 Oct ~21:05 with full history.
 
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
+
+## v9 BETA (25 Oct, cloud session) — three levels + the enemy ace (same branch, `dist-beta/vectorstrike_beta.x86_64`)
+Code for the new parts is in `src/levels.h` (included once from main.cpp). The game now cycles LEVEL 1 -> 2 -> 3 -> 1, wave +1 each level (difficulty keeps rising). Lobby: LB / RB (keyboard 1 / 2) picks the start level, Left/Right still picks EASY/MEDIUM/HARD. Names on screen stay generic.
+- **Level 1 BATTLE STATION** (as v8) plus the trench chase: 42% of the way down the trench the enemy ace and two wingmen drop in behind you ("ENEMY ACE ON YOUR TAIL"). You can't shoot backwards; the camera pulls back behind you to frame them (the film's trench shot). They shoot from behind (the wingmen spray, the ace is precise) and the wingmen can clip catwalks. At 80% (or as soon as someone is down to 2 shields) the freighter comes in head-on over the trench ("FREIGHTER INBOUND - YOU'RE ALL CLEAR"), guns the wingmen, and the ace spins out of the trench.
+- **Level 2 ASTEROID ESCAPE**: everyone flies the freighter (ship table entry FREIGHTER, 34.75 m, cockpit seat in the side tube). An asteroid field (10000 + 1200/wave long, ~1 rock per 8 units, sizes 4-230, tumbling, procedural lumpy icosahedra in `buildRockModels`) with two Star Destroyers behind you; interceptors come from behind onto your tail and smash into rocks (some swerve); small rocks (<30) can be shot, small ones you hit break, big ones cost a shield and bounce you. Out of the field: "HYPERDRIVE CHARGING 4..1" (fighters still attacking), then LIGHT SPEED (star streaks + white flash) -> tally.
+- **Level 3 REACTOR RUN**: the run in past the fleet (same as level 1) to the station, then into the superstructure: a winding girder-filled tunnel (`tunFrame`: centre and size change along z), orange girders to thread (shield hit), wall turrets, the ace + two fighters chase you from 30% (fighters that clip girders burn). The tunnel opens into the reactor chamber: shoot the reactor (12 + 2/wave hits, bombers count 1.5x / 1.9x). Missed it: come round again. Hit it: 2.2 s later the fireball comes after you ("FIREBALL n BEHIND" bar); it is a little faster than base speed, so throttle up (bots floor it). Out of the exit: the station explodes from outside -> tally.
+- **The enemy ace** (`ace.vsm` from Chris's TIE Advanced GLB): only ever one, turns/shoots 1.4x better, holds a tail longer, 5 + wave hits; beaten he spins away (+3000) and returns ~40 s later. Shows in level 1 and 3 run-ins, level 2, the trench chase and the tunnel. Radar: violet blip.
+- Test switches: `VS_LEVEL=1|2|3`, `VS_PHASE=tunnel|lightspeed` (plus the old ones), `VS_ACE=1` (ace parked ahead of P1).
+- Perf note: in 4-player the new levels measured ~22 fps on the cloud's *software* renderer; profiling shows >90% of that is the software rasterizer filling glowing lines (our code is <10% of the frame), so a real GPU should be well above 30. If not: Options -> GLOW OFF.
+- Soak (final build): 4 bots x 1489 s went level 1 -> 2 -> 3 three times (wave 9), no crashes. Beta md5 f1b46bbe... (copy it next to the main binary with the whole `modelpack/` folder, new: ace.vsm, ace_far.vsm).
 
 ## v8 BETA (25 Oct, cloud session) — branch `claude/youthful-johnson-83rm5s`, binary `dist-beta/vectorstrike_beta.x86_64`
 Not deployed yet (beta md5 371d93be...): copy the beta binary next to the main one (don't overwrite `vectorstrike.x86_64`) plus the whole `modelpack/` folder (new files).

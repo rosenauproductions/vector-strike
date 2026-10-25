@@ -21,3 +21,5 @@ python3 $C $A/y-wing.glb $M/ywing_far.vsm --matrix "$FLIP" --faces 1500 --max 60
 python3 $C $A/asf-01_b-wing_starfighter.glb $M/bwing_far.vsm --faces 1500 --max 600 --angle 35
 python3 $C $A/millennium_falcon.glb $M/falcon_far.vsm --matrix '[[-0.9461,0.324,0.0],[0.3212,0.9381,0.1298],[-0.0421,-0.1228,0.9915]]' --faces 2000 --max 700 --angle 35
 python3 $C $A/star_destroyer.glb $M/destroyer_far.vsm --matrix "$FLIP" --faces 2500 --max 900 --angle 30
+python3 $C $A/tie_advanced.glb $M/ace.vsm --faces 12000 --max 3500 --angle 40   # enemy ace (TIE Advanced)
+python3 $C $A/tie_advanced.glb $M/ace_far.vsm --faces 1500 --max 600 --angle 35
