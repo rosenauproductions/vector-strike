@@ -5,6 +5,17 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v10 BETA (25 Oct, cloud session) — Chris's fixes after playing v9 (`dist-beta/vectorstrike_beta.x86_64`, md5 e13056ec...)
+Not deployed yet. Same install as before; the model pack is unchanged since v9.
+- **Level 1 now starts with the escort**: you follow two bombers (Y-wings, white "BOMBER" markers + health bars at the top) along a winding S through the Star Destroyer fleet (a destroyer on the outside of every bend). Fighters come in waves ("FIGHTERS INBOUND"), 3 in 4 go for the bombers: pick them off. Near the station the bombers break off for their run ("COVER US"), you fight one more group (Vader joins here), then the report: "BOMBER GROUP - NO RESPONSE / BOTH BOMBERS WERE DESTROYED" -> "IT'S UP TO YOU - GO IN AND HIT THE TRENCH" -> station -> surface / trench as before.
+- **Level 2 now starts in the freighter's gun turrets**: P1 top gun, P2 bottom, P3/P4 the rear-facing top/bottom. Round window, octagon frame in the middle with braces out to the rim, quad cannon in front of you that fires its top pair and bottom pair in turn. The asteroid field is far ahead (only the big rocks show). Shoot down the incoming fighters (5 + 2*wave, more with more players); shots hit the gunner on the side they come from. Then "TAKE THE CONTROLS - INTO THE ASTEROIDS" and the flying part as before.
+- **Light speed** streaks now run outward from the centre (they were going backwards).
+- **Enemy on your tail**: uses the chase view, pulled back just far enough to show the fighter behind you (it sits ~75 behind now). Same in the trench / tunnel pursuit. The 1st <-> 3rd person zoom and the tail pull-back are slower (~0.75 s / ~1 s).
+- **The ace is now "DARTH VADER"** on screen (Chris's call; CLAUDE.md notes the exception).
+- **Lobby**: the ship choice is now a big line in each player's panel ("UP / DOWN = CHANGE SHIP", ship name, 1/3) - it was easy to miss.
+- Test switches: `VS_PHASE=turret`.
+- Soak: 4 bots x 892 s went escort -> trench -> turrets -> asteroids -> light speed -> reactor -> level 1 again, no crashes.
+
 ## v9 BETA (25 Oct, cloud session) — three levels + the enemy ace (same branch, `dist-beta/vectorstrike_beta.x86_64`)
 **Installed as THE main game on ARCADE-21 25 Oct ~23:35 local**: `vectorstrike.x86_64` = md5 f1b46bbea1296bc6a00f56cf66fb9a17 (v8 kept as `vectorstrike_prev_371d93be.x86_64`), plus `modelpack/ace.vsm` (f4489437...) and `ace_far.vsm` (1c7abcf5...); 18 model files on the box. Not yet run there.
 Code for the new parts is in `src/levels.h` (included once from main.cpp). The game now cycles LEVEL 1 -> 2 -> 3 -> 1, wave +1 each level (difficulty keeps rising). Lobby: LB / RB (keyboard 1 / 2) picks the start level, Left/Right still picks EASY/MEDIUM/HARD. Names on screen stay generic.
