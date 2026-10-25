@@ -69,8 +69,10 @@ static void blob3(Canvas& cv, const Cam& cam, V3 p, float r, Col c, float minPx 
 }
 
 // ---------------------------------------------------------------- models
-struct Model { std::vector<V3> v; std::vector<int> e; bool sorted = false; void E(std::initializer_list<int> l) { for (int x : l) e.push_back(x); } };
-static Model M_FIGHTER, M_SHIP, M_CITADEL, M_TURRET, PK_PLAYER, PK_ENEMY, PK_STATION, PK_COCKPIT, PK_YWING, PK_FALCON, PK_DESTROYER;   // PK_COCKPIT: full-detail outer wings + cannons for the cockpit view
+struct Model { std::vector<V3> v; std::vector<int> e; std::vector<V3> n; bool sorted = false;   // n: 2 face normals per edge (zero = always drawn)
+    void E(std::initializer_list<int> l) { for (int x : l) e.push_back(x); } };
+static Model M_FIGHTER, M_SHIP, M_CITADEL, M_TURRET, PK_PLAYER, PK_ENEMY, PK_STATION, PK_COCKPIT, PK_YWING, PK_FALCON, PK_DESTROYER, PK_TRENCH;   // PK_TRENCH: one repeating tile of trench walls/floor (tools/trench_tile.py)
+static float TRENCH_TILE = 0; static int TRENCH_LINES = 1800;   // lines per tile up close (longest first)   // PK_COCKPIT: full-detail outer wings + cannons for the cockpit view
 static Model* MP = &M_SHIP; static Model* ME = &M_FIGHTER; static Model* MS = &M_CITADEL;
 static float S_PLAYER = 0.9f, S_ENEMY = 2.5f, S_STATION = 0.75f;   // draw scales (station: times its radius)
 // .vsm wireframe from tools/glb2vsm.py: 'v x y z' and 'e a b' lines, longest half-extent 1, +z forward, +y up
@@ -80,14 +82,19 @@ static bool loadVsm(const std::string& path, Model& m) {
     while (fgets(line, sizeof line, f)) {
         float x, y, z; int a, b;
         if (line[0] == 'v' && sscanf(line + 1, "%f %f %f", &x, &y, &z) == 3) n.v.push_back(V3(x, y, z));
-        else if (line[0] == 'e' && sscanf(line + 1, "%d %d", &a, &b) == 2 && a >= 0 && b >= 0) { n.e.push_back(a); n.e.push_back(b); }
+        else if (line[0] == 'e') {
+            float q[6] = {}; int k = sscanf(line + 1, "%d %d %f %f %f %f %f %f", &a, &b, q, q + 1, q + 2, q + 3, q + 4, q + 5);
+            if (k >= 2 && a >= 0 && b >= 0) { n.e.push_back(a); n.e.push_back(b); n.n.push_back(k == 8 ? V3(q[0], q[1], q[2]) : V3()); n.n.push_back(k == 8 ? V3(q[3], q[4], q[5]) : V3()); }
+        }
     }
     fclose(f);
     for (int i : n.e) if (i >= (int)n.v.size()) { printf("model: %s has a bad edge index\n", path.c_str()); return false; }
     if (n.e.size() < 6) return false;
     std::vector<std::pair<float, int>> L; for (size_t i = 0; i + 1 < n.e.size(); i += 2) L.push_back({ -len3(n.v[n.e[i]] - n.v[n.e[i + 1]]), (int)i });
-    std::sort(L.begin(), L.end()); std::vector<int> e2; for (auto& q : L) { e2.push_back(n.e[q.second]); e2.push_back(n.e[q.second + 1]); }
-    n.e = e2; n.sorted = true; m = n;
+    std::sort(L.begin(), L.end()); std::vector<int> e2; std::vector<V3> n2;
+    for (auto& q : L) { e2.push_back(n.e[q.second]); e2.push_back(n.e[q.second + 1]); n2.push_back(n.n[q.second]); n2.push_back(n.n[q.second + 1]); }
+    bool any = false; for (auto& v : n2) if (len3(v) > 0.1f) any = true;
+    n.e = e2; n.n = any ? n2 : std::vector<V3>(); n.sorted = true; m = n;
     printf("model: loaded %s (%d verts, %d edges)\n", path.c_str(), (int)m.v.size(), (int)m.e.size() / 2);
     return true;
 }
@@ -119,6 +126,13 @@ static void basisFrom(V3 fw, float roll, V3& rt, V3& up) {
     fw = norm3(fw); rt = cross3(V3(0, 1, 0), fw); if (len3(rt) < 1e-3f) rt = V3(1, 0, 0); rt = norm3(rt); up = cross3(fw, rt);
     if (roll != 0) { float c = std::cos(roll), s = std::sin(roll); V3 r2 = rt * c - up * s, u2 = up * c + rt * s; rt = r2; up = u2; }
 }
+// hidden back lines: an edge whose two faces both point away from the camera is on the far side of the ship
+static inline bool backEdge(const Model& m, size_t i, const Cam& cam, V3 mid, V3 rt, V3 up, V3 fw) {
+    if (m.n.empty()) return false;
+    V3 a = m.n[i], b = m.n[i + 1]; if (a.x == 0 && a.y == 0 && a.z == 0) return false;
+    V3 v = cam.p - mid, na = rt * a.x + up * a.y + fw * a.z, nb = rt * b.x + up * b.y + fw * b.z;
+    return dot3(na, v) < 0 && dot3(nb, v) < 0;
+}
 static bool SPHERE_CULL = false, FULL_DETAIL = false;   // FULL_DETAIL: draw every edge (player ships)   // set while drawing the station: hide lines on the far side of the globe
 static void drawModelRU(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 fw, V3 rt, V3 up, float s, Col c, float w, float glow) {
     size_t ne = m.e.size();
@@ -129,6 +143,7 @@ static void drawModelRU(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 f
     for (size_t i = 0; i + 1 < ne; i += 2) {
         V3 a = m.v[m.e[i]], b = m.v[m.e[i + 1]];
         V3 wa = pos + rt * (a.x * s) + up * (a.y * s) + fw * (a.z * s), wb = pos + rt * (b.x * s) + up * (b.y * s) + fw * (b.z * s);
+        if (backEdge(m, i, cam, (wa + wb) * 0.5f, rt, up, fw)) { if (ne < m.e.size()) ne += 2; continue; }   // hidden side: spend the budget on a visible line
         if (SPHERE_CULL) {
             V3 mid = (wa + wb) * 0.5f, nrm = mid - pos; float nl = len3(nrm);
             if (nl > s * 0.6f && dot3(nrm, cam.p - mid) < -0.05f * nl * len3(cam.p - mid)) continue;
@@ -217,7 +232,7 @@ struct Player {
     bool tailNow = false; float tailHold = 0, tailDist = 0, camBack = 0; std::string msg; float msgT = 0;   // enemy-on-your-tail state
     SDL_Rect vp = { 0, 0, 0, 0 }; Cam cam;
 };
-struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5; int best = 0, bestWave = 0; };
+struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5, trench = 2; int best = 0, bestWave = 0; };
 static float turnMul();
 
 struct Game {
@@ -244,7 +259,7 @@ struct Game {
 // ---------------------------------------------------------------- config
 static void saveCfg() {
     FILE* f = fopen(G.cfgPath.c_str(), "w"); if (!f) return;
-    fprintf(f, "res=%d\nglow=%d\nshake=%d\nsfx=%d\nmusic=%d\ninvert=%d\nturn=%d\nchase=%d\nbest=%d\nbest_wave=%d\n", G.opt.res, G.opt.glow, G.opt.shake, G.opt.sfx, G.opt.mus, G.opt.invert, G.opt.turn, G.opt.chase, G.opt.best, G.opt.bestWave);
+    fprintf(f, "res=%d\nglow=%d\nshake=%d\nsfx=%d\nmusic=%d\ninvert=%d\nturn=%d\nchase=%d\ntrench=%d\nbest=%d\nbest_wave=%d\n", G.opt.res, G.opt.glow, G.opt.shake, G.opt.sfx, G.opt.mus, G.opt.invert, G.opt.turn, G.opt.chase, G.opt.trench, G.opt.best, G.opt.bestWave);
     fclose(f);
 }
 static void loadCfg() {
@@ -254,7 +269,7 @@ static void loadCfg() {
         std::string s = k;
         if (s == "res") G.opt.res = (int)clampf((float)v, 0, 4); else if (s == "glow") G.opt.glow = v != 0; else if (s == "shake") G.opt.shake = v != 0;
         else if (s == "sfx") G.opt.sfx = (int)clampf((float)v, 0, 10); else if (s == "music") G.opt.mus = (int)clampf((float)v, 0, 10);
-        else if (s == "invert") G.opt.invert = v != 0; else if (s == "turn") G.opt.turn = (int)clampf((float)v, 1, 10); else if (s == "chase") G.opt.chase = (int)clampf((float)v, 1, 10);
+        else if (s == "invert") G.opt.invert = v != 0; else if (s == "turn") G.opt.turn = (int)clampf((float)v, 1, 10); else if (s == "chase") G.opt.chase = (int)clampf((float)v, 1, 10); else if (s == "trench") G.opt.trench = (int)clampf((float)v, 0, 2);
         else if (s == "best") G.opt.best = (int)v; else if (s == "best_wave") G.opt.bestWave = (int)v;
     }
     fclose(f);
@@ -892,10 +907,26 @@ static void drawTrench(Canvas& cv, const Cam& cam, float zc, float z0, float zEn
         line3(cv, cam, a, b, 1.1f, c, major ? 1 : 0.4f); line3(cv, cam, b, d, 1.1f, c, major ? 1 : 0.4f); line3(cv, cam, d, e, 1.1f, c, major ? 1 : 0.4f);
         if (major) { line3(cv, cam, V3(-TR_W - 135, 0, zz), V3(-TR_W, 0, zz), 1.0f, withA(C_GROUND, 0.5f), 0.3f); line3(cv, cam, V3(TR_W, 0, zz), V3(TR_W + 135, 0, zz), 1.0f, withA(C_GROUND, 0.5f), 0.3f); }
         uint32_t h = hash2(ri, 3);
+        if (TRENCH_TILE > 0 && G.opt.trench > 0) continue;   // the model's panels replace the random wall boxes
         if (h & 1) { int s = (h & 2) ? 1 : -1; float y = -6 - (h >> 4 & 31); float dz = 10 + (h >> 10 & 15); float hy = 3 + (h >> 16 & 3);
             V3 p[4] = { V3(s * TR_W, y, zz + 8), V3(s * TR_W, y, zz + 8 + dz), V3(s * TR_W, y - hy, zz + 8 + dz), V3(s * TR_W, y - hy, zz + 8) };
             for (int i = 0; i < 4; i++) line3(cv, cam, p[i], p[(i + 1) % 4], 0.9f, dim, 0.3f); }
         if (zz < zEnd) line3(cv, cam, V3(0, TR_FLOOR, zz + 10), V3(0, TR_FLOOR, zz + 30), 1.0f, dim, 0.3f);
+    }
+    if (TRENCH_TILE > 0 && G.opt.trench > 0) {   // panelled walls and floor from the trench model, repeated down the run; fewer lines far off
+        const Model& m = PK_TRENCH; float TL = TRENCH_TILE, zmax = zEnd + 160;
+        for (float tz = std::floor(zf / TL) * TL; tz < zt; tz += TL) {
+            float d = std::max(0.f, tz + TL * 0.5f - zc);
+            float TLn = TRENCH_LINES * (G.opt.trench == 1 ? 0.45f : 1.f) * std::min(1.f, cam.vp.h / 1080.f + 0.25f);   // split-screen views get fewer
+            size_t ne = std::min(m.e.size(), (size_t)TLn * 2); if (d > 150) ne = std::min(ne, (size_t)std::max(100.f, TLn * std::pow(150.f / d, 1.8f)) * 2);
+            Col pc = withA(C_TRENCH, 0.36f * clampf(1.2f - d / 1400, 0.35f, 1));
+            for (size_t i = 0; i + 1 < ne; i += 2) {
+                V3 a = m.v[m.e[i]], b = m.v[m.e[i + 1]]; a.z += tz; b.z += tz;
+                if ((a.z < z0 && b.z < z0) || (a.z > zmax && b.z > zmax)) continue;
+                if (backEdge(m, i, cam, (a + b) * 0.5f, V3(1, 0, 0), V3(0, 1, 0), V3(0, 0, 1))) { if (ne < m.e.size()) ne += 2; continue; }
+                line3(cv, cam, a, b, 0.9f, pc, 0);
+            }
+        }
     }
     if (zEnd + 160 < zc + 1500) {   // end wall
         float ze = zEnd + 160; for (int k = 0; k <= 4; k++) { float y = TR_FLOOR * k / 4.f; line3(cv, cam, V3(-TR_W, y, ze), V3(TR_W, y, ze), 1.1f, tc); }
@@ -1009,7 +1040,9 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
                 bool body = sh.bodyHalf > 0 ? std::fabs(a.x) < sh.bodyHalf && std::fabs(b.x) < sh.bodyHalf : len3((a + b) * 0.5f - sh.eye) < sh.hideR;
                 Col ec = cc; if (body) { float k = clampf((o.zoom - 0.15f) / 0.5f, 0, 1); if (k <= 0) continue; ec = withA(cc, k); }
                 a = cockpitWarp(sh, a, in2) * S; b = cockpitWarp(sh, b, in2) * S;
-                line3(cv, cam, sp + sr * a.x + su * a.y + sf * a.z, sp + sr * b.x + su * b.y + sf * b.z, 1.3f - 0.3f * in2, ec, 1 - in2);
+                V3 wa = sp + sr * a.x + su * a.y + sf * a.z, wb = sp + sr * b.x + su * b.y + sf * b.z;
+                if (backEdge(m, i, cam, (wa + wb) * 0.5f, sr, su, sf)) continue;
+                line3(cv, cam, wa, wb, 1.3f - 0.3f * in2, ec, 1 - in2);
             }
             continue;
         }
@@ -1369,7 +1402,7 @@ static void updateMenus(float dt) {
         break;
     case ST_HELP: if (m.a || m.b || m.start) { G.state = ST_TITLE; G.menuSel = 1; AU.play(SND_UI, 0.6f); } break;
     case ST_OPTIONS: {
-        if (m.y) { G.menuSel = (G.menuSel + m.y + 9) % 9; AU.play(SND_UI, 0.6f); }
+        if (m.y) { G.menuSel = (G.menuSel + m.y + 10) % 10; AU.play(SND_UI, 0.6f); }
         int dx = m.x + (m.a ? 1 : 0);
         if (dx) {
             AU.play(SND_UI, 0.6f);
@@ -1382,7 +1415,8 @@ static void updateMenus(float dt) {
             case 5: G.opt.invert = !G.opt.invert; for (auto& q : G.pl) q.invert = G.opt.invert; break;
             case 6: G.opt.turn = (int)clampf((float)(G.opt.turn + (m.a ? 0 : dx)), 1, 10); break;
             case 7: G.opt.chase = (int)clampf((float)(G.opt.chase + (m.a ? 0 : dx)), 1, 10); break;
-            case 8: if (m.a) { saveCfg(); G.state = ST_TITLE; G.menuSel = 2; } break;
+            case 8: G.opt.trench = (G.opt.trench + dx + 3) % 3; break;
+            case 9: if (m.a) { saveCfg(); G.state = ST_TITLE; G.menuSel = 2; } break;
             }
             applyAudioVol();
         }
@@ -1449,14 +1483,15 @@ static void renderMenus(Canvas& cv) {
     }
     case ST_OPTIONS: {
         FONT.draw(cv, "OPTIONS", V2(cx, 110 * u), 50 * u, C_PORT, 1, 0, 1.1f);
-        char l[9][64];
+        char l[10][64];
         snprintf(l[0], 64, "RESOLUTION  %s", RESNAMES[G.opt.res]); snprintf(l[1], 64, "GLOW  %s", G.opt.glow ? "ON" : "OFF");
         snprintf(l[2], 64, "SCREEN SHAKE  %s", G.opt.shake ? "ON" : "OFF"); snprintf(l[3], 64, "SOUND  %d", G.opt.sfx); snprintf(l[4], 64, "MUSIC  %d", G.opt.mus);
         snprintf(l[5], 64, "INVERT STICK  %s", G.opt.invert ? "ON - PULL BACK TO CLIMB" : "OFF"); snprintf(l[6], 64, "TURN SPEED  %d", G.opt.turn);
         { char bar[11]; for (int i = 0; i < 10; i++) bar[i] = i < G.opt.chase ? '=' : '-'; bar[10] = 0; snprintf(l[7], 64, "CHASE DISTANCE  %s  %d", bar, G.opt.chase); }
-        snprintf(l[8], 64, "BACK");
-        const char* items[9] = { l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7], l[8] };
-        menuList(cv, items, 9, G.menuSel, cx, G.H * 0.22f, 30 * u, 56 * u);
+        { const char* TD[3] = { "OFF", "LOW", "HIGH" }; snprintf(l[8], 64, "TRENCH DETAIL  %s", TD[G.opt.trench]); }
+        snprintf(l[9], 64, "BACK");
+        const char* items[10] = { l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7], l[8], l[9] };
+        menuList(cv, items, 10, G.menuSel, cx, G.H * 0.21f, 30 * u, 52 * u);
         char info[120]; snprintf(info, sizeof info, "DISPLAY %d X %d   RENDERING %d X %d", G.outW, G.outH, G.W, G.H);
         FONT.draw(cv, info, V2(cx, G.H - 100 * u), 15 * u, withA(C_DIM, 0.9f), 1);
         FONT.draw(cv, "LEFT / RIGHT TO CHANGE.  YOUR OWN MUSIC.WAV AND SOUNDS/*.WAV IN THE GAME FOLDER REPLACE THE BUILT-IN AUDIO", V2(cx, G.H - 60 * u), 15 * u, withA(C_DIM, 0.9f), 1);
@@ -1618,9 +1653,11 @@ int main(int argc, char** argv) {
         loadVsm(md + "cockpit.vsm", PK_COCKPIT);
         if (loadVsm(md + "ywing.vsm", PK_YWING)) NSHIPS = 2;
         loadVsm(md + "falcon.vsm", PK_FALCON); loadVsm(md + "destroyer.vsm", PK_DESTROYER);
+        if (loadVsm(md + "trench.vsm", PK_TRENCH)) { for (auto& v : PK_TRENCH.v) TRENCH_TILE = std::max(TRENCH_TILE, v.z); }
         if (loadVsm(md + "station.vsm", PK_STATION)) { MS = &PK_STATION; S_STATION = 1.0f; }
     }
     { Rng sr; sr.s = 31337; for (int i = 0; i < 420; i++) { V3 d(sr.range(-1, 1), sr.range(-1, 1), sr.range(-1, 1)); if (len3(d) > 1 || len3(d) < 0.1f) { i--; continue; } G.sky.push_back(norm3(d)); } }
+    if (getenv("VS_TRLINES")) TRENCH_LINES = atoi(getenv("VS_TRLINES"));   // test: trench detail
     if (getenv("VS_WARP")) sscanf(getenv("VS_WARP"), "%f,%f", &SHIPS[0].warpY, &SHIPS[0].warpZ);   // test: cockpit wing warp
     int eyeShip = getenv("VS_SHIP") ? atoi(getenv("VS_SHIP")) : 0;
     if (getenv("VS_EYE")) sscanf(getenv("VS_EYE"), "%f,%f,%f", &SHIPS[eyeShip & 1].eye.x, &SHIPS[eyeShip & 1].eye.y, &SHIPS[eyeShip & 1].eye.z);   // test: cockpit seat position (model units)

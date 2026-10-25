@@ -5,7 +5,8 @@ Low-poly look: quadric-decimate to --faces, then keep sharp feature edges (> --a
 --sphere NODE: that node is a smooth sphere: replace it with latitude/longitude rings and an equatorial trench,
   keep feature edges of everything else (Death Star dish).
 --keep-x X: keep only edges with |x| > X (the cockpit view's wings and cannons, drawn at full detail).
-.vsm text: 'v x y z' (centred, longest half-extent = 1) and 'e a b' lines."""
+.vsm text: 'v x y z' (centred, longest half-extent = 1) and 'e a b [n1x n1y n1z n2x n2y n2z]' lines (normals of the two faces
+  beside the edge; the game skips an edge when both face away from the camera, so the far side of a ship is hidden)."""
 import argparse, numpy as np, trimesh
 ap = argparse.ArgumentParser(); ap.add_argument('inp'); ap.add_argument('out')
 ap.add_argument('--angle', type=float, default=28); ap.add_argument('--faces', type=int, default=1600); ap.add_argument('--max', type=int, default=1100)
@@ -21,16 +22,23 @@ for name in s.graph.nodes_geometry:
 allv = np.vstack([p.vertices for p in parts] + ([sph.vertices] if sph is not None else []))
 c = (allv.min(0) + allv.max(0)) / 2; sc = 1 / np.abs(allv - c).max()
 R = np.array(eval(a.matrix)) if a.matrix else np.eye(3)
-V, E = [], []
+V, E, N = [], [], []   # N: the two face normals beside each edge (the game hides edges whose faces both look away)
+DET = np.sign(np.linalg.det(R)) or 1
 def add_mesh(m, budget):
     m = trimesh.Trimesh((m.vertices - c) * sc @ R.T, m.faces, process=True); m.merge_vertices()
     if len(m.faces) > budget:
         try: m = m.simplify_quadric_decimation(face_count=budget); m.merge_vertices()
         except Exception as ex: print('decimate failed', ex)
-    ed = m.face_adjacency_edges[m.face_adjacency_angles > np.radians(a.angle)]
-    eu, cnt = np.unique(m.edges_sorted, axis=0, return_counts=True)
-    ee = np.unique(np.sort(np.vstack([ed, eu[cnt == 1]]), axis=1), axis=0)
-    base = sum(len(x) for x in V); V.append(m.vertices); E.append(ee + base)
+    fn = m.face_normals * DET
+    sel = m.face_adjacency_angles > np.radians(a.angle)
+    ed = np.sort(m.face_adjacency_edges[sel], axis=1); fa = m.face_adjacency[sel]
+    es = np.sort(m.edges, axis=1); ef = np.arange(len(es)) // 3   # edge -> its face
+    eu, inv, cnt = np.unique(es, axis=0, return_inverse=True, return_counts=True)
+    bmask = cnt[inv] == 1; be = es[bmask]; bf = ef[bmask]
+    ee = np.vstack([ed, be]); nn = np.hstack([fn[fa[:, 0]], fn[fa[:, 1]]]) if len(ed) else np.zeros((0, 6))
+    nb = np.zeros((len(be), 6)); nn = np.vstack([nn, nb])   # open edges (thin sheets) are seen from both sides: always drawn
+    ee, ui = np.unique(ee, axis=0, return_index=True); nn = nn[ui]
+    base = sum(len(x) for x in V); V.append(m.vertices); E.append(ee + base); N.append(nn)
 if sph is not None:   # drop effect pieces floating outside the hull
     hc = (sph.vertices.min(0) + sph.vertices.max(0)) / 2; hr = np.abs(sph.vertices - hc).max()
     parts = [p for p in parts if np.linalg.norm((p.vertices.min(0) + p.vertices.max(0)) / 2 - hc) < hr * 1.1]
@@ -73,16 +81,16 @@ if sph is not None:
             ed += [(b, b + 1), (b + 1, b + 2), (b + 2, b + 3), (b + 3, b)]
         else:                     # panel seam: an L of two lines
             pts += [sp(la, lo, h), sp(la, lo + dlo * 2, h), sp(la + dla * 2, lo, h)]; ed += [(b, b + 1), (b, b + 2)]
-    V.append(np.array(pts)); E.append(np.array(ed))
-V = np.vstack(V); E = np.vstack(E)
-if a.keep_x > 0: E = E[(np.abs(V[E[:, 0], 0]) > a.keep_x) & (np.abs(V[E[:, 1], 0]) > a.keep_x)]   # cockpit set: only the outer wings / cannons
-L = np.linalg.norm(V[E[:, 0]] - V[E[:, 1]], axis=1); E = E[L > 0.003]; L = L[L > 0.003]
-if len(E) > a.max: E = E[np.argsort(-L)[:a.max]]
+    V.append(np.array(pts)); E.append(np.array(ed)); N.append(np.zeros((len(ed), 6)))
+V = np.vstack(V); E = np.vstack(E); N = np.vstack(N)
+if a.keep_x > 0: k = (np.abs(V[E[:, 0], 0]) > a.keep_x) & (np.abs(V[E[:, 1], 0]) > a.keep_x); E = E[k]; N = N[k]   # cockpit set: only the outer wings / cannons
+L = np.linalg.norm(V[E[:, 0]] - V[E[:, 1]], axis=1); k = L > 0.003; E = E[k]; N = N[k]; L = L[k]
+if len(E) > a.max: o = np.argsort(-L)[:a.max]; E = E[o]; N = N[o]
 used = np.unique(E); remap = -np.ones(len(V), int); remap[used] = np.arange(len(used)); V = V[used]; E = remap[E]
 with open(a.out, 'w') as f:
     f.write('# vector strike wireframe from %s\n' % a.inp.split('/')[-1])
     for p in V: f.write('v %.4f %.4f %.4f\n' % tuple(p))
-    for e in E: f.write('e %d %d\n' % tuple(e))
+    for e, n in zip(E, N): f.write(('e %d %d %.2f %.2f %.2f %.2f %.2f %.2f\n' % (e[0], e[1], *n)) if np.any(n) else 'e %d %d\n' % tuple(e))
 print('%s: %d verts %d edges, extents %s' % (a.out, len(V), len(E), (V.max(0) - V.min(0)).round(2)))
 if a.preview:
     import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt
