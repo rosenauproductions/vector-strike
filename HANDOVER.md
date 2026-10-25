@@ -1,4 +1,7 @@
-# Vector Strike — handover (24 Oct 2026, v2)
+# Vector Strike — handover (24 Oct 2026)
+
+**Code lives on GitHub: `rosenauproductions/vector-strike` (private, branch main).** Cloud sessions: add_repo it and read CLAUDE.md + HANDOVER.md in the repo (HANDOVER.md there is the canonical copy of this doc). Pushed 24 Oct ~21:05 with full history.
+
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
