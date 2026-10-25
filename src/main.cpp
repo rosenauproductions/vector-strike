@@ -2,6 +2,9 @@
 // Each wave: dogfight the interceptors, strafe the surface towers, then run the trench and hit the exhaust port.
 #include "gfx.h"
 #include "audio.h"
+#include "wii/manager.h"
+#include "wii/sim.h"
+#include <memory>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -231,10 +234,12 @@ struct Dev {
     int id = -1; SDL_GameController* gc = nullptr; std::string name; bool nintendo = false, hasGyro = false;
     bool b[NB] = {}, pb[NB] = {}; V2 mv; float tl = 0, tr = 0; V2 rs; int navX = 0, navY = 0, nxLast = 0, nyLast = 0; float nxT = 0, nyT = 0;
     bool ml = false, mouseMoved = false; V2 mouse; V3 gyro;
+    // Wii remote (direct Bluetooth, Wii Lab driver): IR pointer aim, no calibration - the sight shows where you point
+    std::shared_ptr<Wiimote> wii; std::string mac; bool ptrOk = false; V2 ptr, ptrRaw, ptrOff, half; bool haveHalf = false, homeHeld = false; float lostT = 9, roll = 0; int dots = 0;
 };
 struct Player {
     bool joined = false, bot = false, invert = false, gyro = false, devLost = false, third = false; int dev = -9, idx = 0; Col col;
-    float x = 0, y = 0, zoff = 0; V2 aim; float fireCd = 0; int gun = 0; int shields = MAXSH; bool down = false;
+    float x = 0, y = 0, zoff = 0; V2 aim, steer; /* steer = where the ship turns: aim, or the autopilot ON RAILS */ float fireCd = 0; int gun = 0; int shields = MAXSH; bool down = false;
     float inv = 0, hitT = 0, shake = 0, downT = 0, bank = 0, pitchExtra = 0, botFire = 0; int score = 0, kills = 0, ballsShot = 0;
     V3 pos, fwd = V3(0, 0, 1), up = V3(0, 1, 0); float speed = 110, thr = 0;   // open-space flight
     int ship = 0;   // SHIPS index (lobby Up/Down)
@@ -248,7 +253,7 @@ struct Player {
     bool tailNow = false; float tailHold = 0, tailDist = 0, camBack = 0; std::string msg; float msgT = 0;   // enemy-on-your-tail state
     SDL_Rect vp = { 0, 0, 0, 0 }; Cam cam;
 };
-struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5, trench = 1; bool radar = true; int best = 0, bestWave = 0; };
+struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5, trench = 1; bool radar = true; int best = 0, bestWave = 0; bool rails = false; };
 static float turnMul();
 
 struct Game {
@@ -283,7 +288,7 @@ struct Game {
 // ---------------------------------------------------------------- config
 static void saveCfg() {
     FILE* f = fopen(G.cfgPath.c_str(), "w"); if (!f) return;
-    fprintf(f, "res=%d\nglow=%d\nshake=%d\nsfx=%d\nmusic=%d\ninvert=%d\nturn=%d\nchase=%d\ntrench=%d\nradar=%d\nbest=%d\nbest_wave=%d\n", G.opt.res, G.opt.glow, G.opt.shake, G.opt.sfx, G.opt.mus, G.opt.invert, G.opt.turn, G.opt.chase, G.opt.trench, G.opt.radar, G.opt.best, G.opt.bestWave);
+    fprintf(f, "res=%d\nglow=%d\nshake=%d\nsfx=%d\nmusic=%d\ninvert=%d\nturn=%d\nchase=%d\ntrench=%d\nradar=%d\nbest=%d\nbest_wave=%d\nrails=%d\n", G.opt.res, G.opt.glow, G.opt.shake, G.opt.sfx, G.opt.mus, G.opt.invert, G.opt.turn, G.opt.chase, G.opt.trench, G.opt.radar, G.opt.best, G.opt.bestWave, G.opt.rails);
     fclose(f);
 }
 static void loadCfg() {
@@ -293,7 +298,7 @@ static void loadCfg() {
         std::string s = k;
         if (s == "res") G.opt.res = (int)clampf((float)v, 0, 4); else if (s == "glow") G.opt.glow = v != 0; else if (s == "shake") G.opt.shake = v != 0;
         else if (s == "sfx") G.opt.sfx = (int)clampf((float)v, 0, 10); else if (s == "music") G.opt.mus = (int)clampf((float)v, 0, 10);
-        else if (s == "invert") G.opt.invert = v != 0; else if (s == "turn") G.opt.turn = (int)clampf((float)v, 1, 10); else if (s == "chase") G.opt.chase = (int)clampf((float)v, 1, 10); else if (s == "trench") G.opt.trench = (int)clampf((float)v, 0, 2); else if (s == "radar") G.opt.radar = v != 0;
+        else if (s == "invert") G.opt.invert = v != 0; else if (s == "turn") G.opt.turn = (int)clampf((float)v, 1, 10); else if (s == "chase") G.opt.chase = (int)clampf((float)v, 1, 10); else if (s == "trench") G.opt.trench = (int)clampf((float)v, 0, 2); else if (s == "radar") G.opt.radar = v != 0; else if (s == "rails") G.opt.rails = v != 0;
         else if (s == "best") G.opt.best = (int)v; else if (s == "best_wave") G.opt.bestWave = (int)v;
     }
     fclose(f);
@@ -498,8 +503,10 @@ static float crossRange(const Player& p, bool horiz) { float hw = p.vp.w * 0.5f,
 static V2 crossOff(const Player& p) { if (G.phase == PH_TURRET) return V2(); return V2(p.aim.x * crossRange(p, true), -p.aim.y * crossRange(p, false)); }
 static V3 portPos() { return V3(0, TR_FLOOR + 0.5f, G.trenchZ0 + G.trenchLen); }
 
+static void wiiRumble(int devId, int ms);
 static void hitPlayer(Player& p, const char* why) {
     if (p.down || p.inv > 0) return;
+    if (!p.bot) wiiRumble(p.dev, p.shields <= 1 ? 600 : 250);
     p.shields--; p.inv = 0.9f; p.hitT = 0.5f; if (G.opt.shake) p.shake = std::max(p.shake, 16.f);
     AU.play(SND_SHIELD, 0.9f);
     printf("game: P%d hit by %s, shields %d\n", p.idx + 1, why, p.shields);
@@ -887,7 +894,11 @@ static void updatePlayer(Player& p, float dt) {
         Dev* d = devById(p.dev);
         if (d) {
             V2 mv = d->mv; if (p.invert) mv.y = -mv.y;
-            if (d->id == -1) {   // keyboard: relative; mouse: absolute inside this view
+            if (d->wii) {   // Wii remote: the sight sits where the remote points at the sensor bar; B / A fire, D-pad up/down throttle
+                if (d->ptrOk) { V2 want = d->ptr; if (p.invert) want.y = -want.y; p.aim = p.aim + (want - p.aim) * std::min(1.f, dt * 22); }
+                else if (d->lostT > 0.4f) p.aim = p.aim * std::pow(0.3f, dt);   // pointed away from the bar: ease back to the middle
+                fire = d->b[B_A] || d->b[B_RB]; p.thr = d->tr - d->tl;
+            } else if (d->id == -1) {   // keyboard: relative; mouse: absolute inside this view
                 p.aim = p.aim + V2(mv.x, -mv.y) * (2.4f * turnMul() * dt);
                 if (len(mv) < 0.1f) p.aim = p.aim * std::pow(0.25f, dt);
                 if (d->mouseMoved) { V2 c(p.vp.x + p.vp.w * 0.5f, p.vp.y + p.vp.h * 0.5f); V2 o = d->mouse - c; p.aim = V2(o.x / crossRange(p, true), -o.y / crossRange(p, false)); }
@@ -905,6 +916,13 @@ static void updatePlayer(Player& p, float dt) {
     if (!p.bot) { Dev* dv = devById(p.dev); if (dv && pr(*dv, B_Y)) { p.third = !p.third; AU.play(SND_UI, 0.5f); } }
     if (getenv("VS_AUTOFIRE")) fire = true;   // test switch
     p.aim.x = clampf(p.aim.x, -1, 1); p.aim.y = clampf(p.aim.y, -1, 1);
+    // ON RAILS (lobby toggle, on by default once a Wii remote joins): the autopilot flies the ship - the bots' pilot -
+    // and your sight only aims and shoots, like the 1983 cabinet. Throttle still works when you touch it.
+    if (G.opt.rails && !p.bot && G.phase != PH_TANK && G.phase != PH_TURRET && G.phase != PH_ESCAPE && G.phase != PH_TALLY) {
+        float hum = p.thr; V2 want; bool bf = false; botThink(p, dt, want, bf);
+        if (std::fabs(hum) > 0.1f || !isSpace()) p.thr = hum;
+        p.steer = p.steer + (want - p.steer) * std::min(1.f, dt * 5);
+    } else p.steer = p.aim;
     if (G.phase == PH_TANK) { tankPlayer(p, dt, fire); return; }
     if (G.phase == PH_HOTH) { hothPlayer(p, dt, fire); return; }
     if (G.phase == PH_TURRET) turretAim(p, dt);
@@ -913,7 +931,7 @@ static void updatePlayer(Player& p, float dt) {
         p.speed = clampf(p.speed + p.thr * 120 * dt, 35, 250);
         V3 right = norm3(cross3(p.up, p.fwd));
         float tm = turnMul() * shipOf(p).turn;   // bombers steer heavier
-        p.fwd = norm3(p.fwd + right * (p.aim.x * 1.55f * tm * dt) + p.up * (p.aim.y * 1.3f * tm * dt));
+        p.fwd = norm3(p.fwd + right * (p.steer.x * 1.55f * tm * dt) + p.up * (p.steer.y * 1.3f * tm * dt));
         V3 up = norm3(p.up - p.fwd * dot3(p.up, p.fwd)), lv = V3(0, 1, 0) - p.fwd * dot3(V3(0, 1, 0), p.fwd);
         if (len3(lv) > 0.15f) up = norm3(up + norm3(lv) * (0.9f * dt));   // gently roll back level
         p.up = up;
@@ -922,10 +940,10 @@ static void updatePlayer(Player& p, float dt) {
         if (dl < G.stR + 6) { p.pos = G.stC + ds * ((G.stR + 40) / dl); p.fwd = norm3(p.fwd + ds * (1 / dl)); hitPlayer(p, "station"); }
     } else if (G.phase != PH_ESCAPE && G.phase != PH_TALLY) {
         float ms = (G.phase == PH_TRENCH ? 42 : G.phase == PH_TUNNEL ? 62 : G.phase == PH_FOX ? 105 : 95) * turnMul() * (0.5f + 0.5f * shipOf(p).turn);
-        p.x += p.aim.x * ms * dt; p.y += p.aim.y * ms * dt * 0.85f;
+        p.x += p.steer.x * ms * dt; p.y += p.steer.y * ms * dt * 0.85f;
     }
     if (!isSpace()) clampPlayer(p, dt);
-    p.bank += (p.aim.x * 0.42f - p.bank) * std::min(1.f, dt * 6);
+    p.bank += (p.steer.x * 0.42f - p.bank) * std::min(1.f, dt * 6);
     if (G.phase == PH_FOX) { foxInput(p, fire, dt); if (fire && p.fireCd <= 0 && !G.over) foxFire(p); return; }
     if (fire && p.fireCd <= 0 && G.phase != PH_ESCAPE && G.phase != PH_TALLY && !G.over) playerFire(p);
 }
@@ -1297,6 +1315,7 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
 static const char* btnLab(int devId, int b) {
     const Dev* d = devById(devId);
     if (devId == -1) { switch (b) { case B_A: return "SPACE"; case B_B: return "BKSP"; case B_X: return "I"; case B_Y: return "G"; case B_START: return "ESC"; } return "?"; }
+    if (d && d->wii) { switch (b) { case B_A: return "A"; case B_B: return "HOME"; case B_X: return "1"; case B_Y: return "2"; case B_RB: return "B"; case B_START: return "+"; case B_BACK: return "-"; } return "?"; }
     bool nin = d && d->nintendo;
     switch (b) { case B_A: return nin ? "B" : "A"; case B_B: return nin ? "A" : "B"; case B_X: return nin ? "Y" : "X"; case B_Y: return nin ? "X" : "Y"; case B_START: return nin ? "+" : "START"; case B_BACK: return nin ? "-" : "BACK"; }
     return "?";
@@ -1487,7 +1506,7 @@ static void shipFrame(const Player& o, V3& pos, V3& fw, V3& rt, V3& up) {
     if (isSpace()) {
         fw = norm3(o.fwd); rt = norm3(cross3(o.up, fw)); up = cross3(fw, rt);
         float roll = o.bank * 1.6f, cs = std::cos(roll), sn = std::sin(roll); V3 r2 = rt * cs - up * sn, u2 = up * cs + rt * sn; rt = r2; up = u2;
-    } else { fw = norm3(V3(o.aim.x * 0.3f, o.aim.y * 0.25f + o.pitchExtra, 1)); basisFrom(fw, -o.bank * 1.4f + foxRoll(o), rt, up); }
+    } else { fw = norm3(V3(o.steer.x * 0.3f, o.steer.y * 0.25f + o.pitchExtra, 1)); basisFrom(fw, -o.bank * 1.4f + foxRoll(o), rt, up); }
 }
 // your own ship: locked to the cockpit camera when you are inside, easing to its normal frame as the view zooms out
 static void ownFrame(const Player& p, V3& pos, V3& fw, V3& rt, V3& up) {
@@ -1541,7 +1560,7 @@ static void setupCamBase(Player& p) {
         c0.fogNear = c1.fogNear = 1700; c0.fogFar = c1.fogFar = 3200;
         if (G.citBoom) { c0.fogNear = c1.fogNear = 4e5f; c0.fogFar = c1.fogFar = 8e5f; }   // watching the station break up from far out
     } else {
-        float yaw = p.aim.x * (G.phase == PH_TRENCH || G.phase == PH_TUNNEL ? 0.12f : 0.22f), pitch = p.aim.y * 0.15f + p.pitchExtra;
+        float yaw = p.steer.x * (G.phase == PH_TRENCH || G.phase == PH_TUNNEL ? 0.12f : 0.22f), pitch = p.steer.y * 0.15f + p.pitchExtra;
         c0.set(pos, yaw, pitch, p.bank, p.vp, vfov); c0.p = pos + c0.r * eye.x + c0.u * eye.y + c0.f * eye.z;
         float back = S_PLAYER * 5.5f * chaseMul() * shipOf(p).k, upz = S_PLAYER * 1.3f * chaseMul() * shipOf(p).k;
         float rb = railChaseBack(p), wantB = rb > 0 ? std::max(back, rb) : back;   // pursuers behind: pull back to show them, like the film's trench shot
@@ -1613,6 +1632,79 @@ static int navAxis(Dev& d, int axis, float dt) {
     t -= dt; if (t <= 0) { t = 0.1f; return dir; }
     return 0;
 }
+// ---------------------------------------------------------------- Wii remotes (src/wii = the Wii Lab driver)
+// Dolphin-style: the game runs its own Bluetooth search (menus/pause only - searching adds lag) and talks to each
+// remote over raw L2CAP. Forget the remotes in Batocera's Bluetooth settings first, then press 1+2 (or red sync).
+static Manager WII; static bool WII_ON = false;
+static std::map<std::string, int> WII_IDS;   // mac -> stable device id, so a remote that drops comes back as the same player
+static void wiiRumble(int devId, int ms) { Dev* d = devById(devId); if (WII_ON && d && d->wii) WII.act("rumble", d->mac, ms); }
+static void wiiLeds(Dev& d, int player) { if (WII_ON && d.wii) WII.act("leds", d.mac, player >= 0 ? 1 << (player & 3) : 0); }
+static void wiiStart() {
+    if (getenv("VS_NOWII")) { printf("wii: off (VS_NOWII)\n"); return; }
+    int sims = getenv("VS_WII_SIM") ? atoi(getenv("VS_WII_SIM")) : 0;
+    MgrSettings ms; ms.mode = 0x33; ms.cont = true; ms.irLevel = 3; ms.autoPause = false;   // keep looking while some are connected so the 2nd-4th can join
+    WII.setSettings(ms);
+    std::string cd = G.dir; if (cd.size() > 1 && cd.back() == '/') cd.pop_back();
+    WII.start(sims, cd, cd); WII_ON = true;
+    printf("wii: driver started%s\n", sims ? " (simulator)" : "");
+}
+static void wiiStop() { if (!WII_ON) return; WII.stop(); simShutdownAll(); WII_ON = false; }
+static void wiiSync(bool searching) {
+    if (!WII_ON) return;
+    MgrSettings ms = WII.settings(); if (ms.scan != searching) { ms.scan = searching; WII.setSettings(ms); printf("wii: search %s\n", searching ? "on" : "off"); }
+    auto rs = WII.remotes();
+    for (size_t i = 0; i < G.devs.size(); i++) {   // dropped remotes
+        Dev& d = G.devs[i]; if (!d.wii) continue;
+        bool still = false; for (auto& w : rs) if (w == d.wii && w->alive()) still = true;
+        if (!still) { int id = d.id; printf("wii: remote %s gone (id %d)\n", d.mac.c_str(), id); G.devs.erase(G.devs.begin() + i); i--; for (auto& p : G.pl) if (p.joined && p.dev == id) p.devLost = true; }
+    }
+    for (auto& w : rs) {
+        if (!w->alive()) continue;
+        bool have = false; for (auto& d : G.devs) if (d.wii == w) have = true;
+        if (have) continue;
+        if (!WII_IDS.count(w->mac)) { int n = (int)WII_IDS.size(); WII_IDS[w->mac] = 5000 + n; }
+        Dev d; d.id = WII_IDS[w->mac]; d.wii = w; d.mac = w->mac; d.name = "WII REMOTE";
+        printf("wii: remote %s ready as device %d\n", w->mac.c_str(), d.id);
+        G.devs.push_back(d);
+        int pl = -1; for (auto& p : G.pl) if (p.joined && p.dev == d.id) { p.devLost = false; pl = p.idx; printf("wii: back as P%d\n", pl + 1); }
+        wiiLeds(G.devs.back(), pl);
+    }
+}
+static void wiiRead(Dev& d, float dt, bool inGame) {
+    WiiState st = d.wii->state(); uint32_t held = st.buttons;
+    for (auto& e : d.wii->takeEvents()) if (e.down) held |= e.bit;   // taps shorter than a frame still count
+    d.b[B_A] = held & WB_A; d.b[B_RB] = inGame && (held & WB_B);   /* trigger = fire; kept off the lobby's level switch */ d.b[B_X] = held & WB_1; d.b[B_Y] = held & WB_2;
+    d.b[B_START] = held & WB_PLUS; d.b[B_BACK] = held & WB_MINUS; d.b[B_B] = !inGame && (held & WB_HOME);
+    d.b[B_UP] = held & WB_UP; d.b[B_DOWN] = held & WB_DOWN; d.b[B_LEFT] = held & WB_LEFT; d.b[B_RIGHT] = held & WB_RIGHT;
+    d.mv = V2((d.b[B_RIGHT] ? 1.f : 0.f) - (d.b[B_LEFT] ? 1.f : 0.f), (d.b[B_DOWN] ? 1.f : 0.f) - (d.b[B_UP] ? 1.f : 0.f));
+    if (inGame) { d.tr = d.b[B_UP] ? 1.f : 0.f; d.tl = d.b[B_DOWN] ? 1.f : 0.f; }
+    // pointer: midpoint of the two sensor-bar dots, roll-corrected from the angle between them (Dead Center's method)
+    V2 dot[4]; int n = 0;
+    for (int i = 0; i < 4; i++) if (st.ir[i][0] < 1023 && st.ir[i][1] < 1023) dot[n++] = V2((float)st.ir[i][0] - 512, (float)st.ir[i][1] - 384);
+    d.dots = n; bool got = false; V2 mid;
+    if (n >= 2) {
+        int a = 0, b = 1; float best = -1;   // the widest pair is the bar
+        for (int i = 0; i < n; i++) for (int j = i + 1; j < n; j++) { float l = len(dot[i] - dot[j]); if (l > best) { best = l; a = i; b = j; } }
+        V2 L = dot[a], Rr = dot[b]; if (L.x > Rr.x) std::swap(L, Rr);
+        d.roll = std::atan2(Rr.y - L.y, Rr.x - L.x); mid = (L + Rr) * 0.5f; d.half = (Rr - L) * 0.5f; d.haveHalf = true; got = true;
+    } else if (n == 1 && d.haveHalf && d.lostT < 0.5f) {   // one light left the camera's view: keep aiming off the other one
+        V2 m1 = dot[0] + d.half, m2 = dot[0] - d.half;
+        mid = len(m1 - d.ptrRaw) < len(m2 - d.ptrRaw) ? m1 : m2; got = true;
+    }
+    if (got) {
+        float c = std::cos(-d.roll), s = std::sin(-d.roll);
+        V2 f(mid.x * c - mid.y * s, mid.x * s + mid.y * c);
+        d.ptrRaw = mid;
+        // pointing right moves the dots left in the camera, pointing up moves them down; the middle ~60% of the view spans the sight's range
+        V2 a = V2(-f.x / 300.f, f.y / 225.f) - d.ptrOff;
+        bool home = inGame && (held & WB_HOME);
+        if (home && !d.homeHeld) { d.ptrOff = d.ptrOff + a; a = V2(); printf("wii: %s recentred\n", d.mac.c_str()); }   // Home: "where I point now is the middle"
+        d.ptr = V2(clampf(a.x, -1.2f, 1.2f), clampf(a.y, -1.2f, 1.2f)); d.ptrOk = true; d.lostT = 0;
+    } else { d.lostT += dt; if (d.lostT > 0.25f) d.ptrOk = false; }
+    d.homeHeld = held & WB_HOME;
+    { static double nextLog = 0; double t = SDL_GetTicks() / 1000.0; if (t > nextLog) { nextLog = t + 10; printf("wii: %s dots %d pointer %s %.2f %.2f roll %.0f deg battery %d\n", d.mac.c_str(), n, d.ptrOk ? "ok" : "lost", d.ptr.x, d.ptr.y, d.roll * 57.3f, st.battery); } }
+    d.wii->noteFrameSample(st.buttons);
+}
 static void readDevs(float dt, bool inGame) {
     int mx, my; Uint32 mb = SDL_GetMouseState(&mx, &my);
     for (auto& d : G.devs) {
@@ -1633,6 +1725,8 @@ static void readDevs(float dt, bool inGame) {
             d.tr = k[SDL_SCANCODE_E] ? 1.f : 0.f; d.tl = k[SDL_SCANCODE_Q] ? 1.f : 0.f;
             int ww, wh; SDL_GetWindowSize(G.win, &ww, &wh);
             d.mouse = V2(mx * (float)G.W / std::max(ww, 1), my * (float)G.H / std::max(wh, 1));
+        } else if (d.wii) {
+            wiiRead(d, dt, inGame);
         } else if (d.gc) {
             auto Bt = [&](SDL_GameControllerButton b) { return SDL_GameControllerGetButton(d.gc, b) != 0; };
             d.b[B_A] = Bt(SDL_CONTROLLER_BUTTON_A); d.b[B_B] = Bt(SDL_CONTROLLER_BUTTON_B); d.b[B_X] = Bt(SDL_CONTROLLER_BUTTON_X); d.b[B_Y] = Bt(SDL_CONTROLLER_BUTTON_Y);
@@ -1690,6 +1784,7 @@ static void joinPlayer(int devId) {
     for (int i = 0; i < 4; i++) if (!G.pl[i].joined) {
         Player& p = G.pl[i]; p = Player(); p.joined = true; p.dev = devId; p.idx = i; p.col = PCOL[i]; p.invert = G.opt.invert;
         Dev* d = devById(devId); if (d && d->gc) SDL_GameControllerSetPlayerIndex(d->gc, i);
+        if (d && d->wii) { wiiLeds(*d, i); WII.act("rumble", d->mac, 150); if (!G.opt.rails) { G.opt.rails = true; printf("lobby: Wii remote joined - ON RAILS\n"); } }
         AU.play(SND_UI_OK, 0.7f); printf("lobby: P%d joined (%s)\n", i + 1, devId == -1 ? "keyboard" : d ? d->name.c_str() : "test");
         return;
     }
@@ -1736,6 +1831,7 @@ static void updateMenus(float dt) {
                 if (pr(d, B_X)) { p.invert = !p.invert; AU.play(SND_UI, 0.6f); }
                 if (pr(d, B_Y)) { if (d.hasGyro || d.id == -1) { p.gyro = !p.gyro && d.hasGyro; AU.play(SND_UI, 0.6f); } else AU.play(SND_UI, 0.3f, 0, 0.6f); }
                 if (d.navX) { G.startSel = (G.startSel + d.navX + 3) % 3; AU.play(SND_UI, 0.6f); }
+                if (pr(d, B_BACK) && !d.b[B_START]) { G.opt.rails = !G.opt.rails; AU.play(SND_UI, 0.6f); }
                 if (pr(d, B_LB) || pr(d, B_RB)) { G.startLevel = (G.startLevel + (pr(d, B_RB) ? 1 : 2)) % 3 + 1; AU.play(SND_UI, 0.6f); }
                 if (d.navY && NSHIPS > 1) { p.ship = (p.ship + NSHIPS + (d.navY > 0 ? 1 : -1)) % NSHIPS; AU.play(SND_UI, 0.6f); }
                 if (pr(d, B_START)) startNow = true;
@@ -1777,6 +1873,8 @@ static void renderMenus(Canvas& cv) {
             "OPTIONS: INVERT STICK, TURN SPEED.  LOBBY: X INVERT   Y GYRO   LEFT/RIGHT LEVEL",
             "Y (KEYBOARD V) - COCKPIT / CHASE VIEW.  GYRO: L3 RECENTERS.  START - PAUSE",
             "KEYBOARD: ARROWS / WASD OR MOUSE, SPACE OR CLICK FIRE, E / Q THROTTLE, ESC",
+            "WII REMOTE: POINT AT THE SCREEN TO AIM, B / A FIRE, D-PAD THROTTLE, 2 VIEW, HOME RECENTERS",
+            "ON RAILS (LOBBY: BACK / - / TAB): THE AUTOPILOT FLIES, YOU AIM AND SHOOT",
         };
         int n = sizeof(lines) / sizeof(lines[0]);
         drawPanel(cv, cx - 800 * u, 140 * u, 1600 * u, (n * 46 + 40) * u, withA(C_PORT, 0.5f), u);
@@ -1824,6 +1922,7 @@ static void renderMenus(Canvas& cv) {
                     FONT.draw(cv, sh.bomb > 1.6f ? "BIG HITS ON TARGETS - SLOW TURNS" : sh.bomb > 1 ? "BIGGER HITS ON TARGETS - HEAVIER TURNS" : "ALL-ROUND DOGFIGHTER", V2(x + pw / 2, y0 + 276 * u), 10 * u, withA(C_WHITE, 0.6f), 1);
                 }
                 snprintf(t, sizeof t, "%s INVERT Y: %s", btnLab(p.dev, B_X), p.invert ? "ON" : "OFF"); FONT.draw(cv, t, V2(x + pw / 2, y0 + 300 * u), 12 * u, withA(C_WHITE, 0.8f), 1);
+                if (d && d->wii) snprintf(t, sizeof t, d->ptrOk ? "WII POINTER: OK" : "POINT AT THE SENSOR BAR"); else
                 if (d && d->hasGyro) snprintf(t, sizeof t, "%s GYRO AIM: %s", btnLab(p.dev, B_Y), p.gyro ? "ON" : "OFF"); else snprintf(t, sizeof t, "NO GYRO");
                 FONT.draw(cv, t, V2(x + pw / 2, y0 + 320 * u), 12 * u, withA(d && d->hasGyro ? C_WHITE : C_DIM, 0.8f), 1);
             } else {
@@ -1838,10 +1937,12 @@ static void renderMenus(Canvas& cv) {
         if (G.mode == 3) snprintf(ml, sizeof ml, "ICE PLANET - X / R TOW CABLE, CIRCLE A WALKER TWICE"); else
         snprintf(ml, sizeof ml, "LB  LEVEL %d - %s  RB", G.startLevel, LEVELNAMES[G.startLevel]);
         FONT.draw(cv, ml, V2(cx, my - 42 * u), 24 * u, withA(C_WHITE, 0.9f), 1);
+        if (G.mode != 2) FONT.draw(cv, G.opt.rails ? "BACK / -   ON RAILS: AUTOPILOT FLIES, YOU AIM" : "BACK / -   FREE FLIGHT: YOU FLY", V2(cx, my + 92 * u), 18 * u, G.opt.rails ? C_PORT : withA(C_WHITE, 0.6f), 1);
         snprintf(ml, sizeof ml, "<  %s  >", STARTNAMES[G.startSel]);
         FONT.draw(cv, ml, V2(cx, my), 34 * u, C_PORT, 1, 0, 1.0f);
         if (STARTBONUS[G.startSel]) { snprintf(ml, sizeof ml, "START BONUS %d", STARTBONUS[G.startSel]); FONT.draw(cv, ml, V2(cx, my + 56 * u), 18 * u, withA(C_WHITE, 0.85f), 1); }
         FONT.draw(cv, "A JOIN    B LEAVE    UP/DOWN SHIP    X INVERT    Y GYRO    LB/RB LEVEL    LEFT/RIGHT DIFFICULTY    START LAUNCH", V2(cx, G.H - 70 * u), 16 * u, withA(C_DIM, 0.95f), 1);
+        if (WII_ON) { std::string ws = "WII: FORGET IT IN BATOCERA BLUETOOTH, PRESS 1+2 - A JOINS, HOME LEAVES    " + WII.status(); for (auto& ch : ws) ch = (char)toupper(ch); FONT.draw(cv, ws.c_str(), V2(cx, G.H - 40 * u), 13 * u, withA(C_DIM, 0.9f), 1); }
         break;
     }
     }
@@ -1932,6 +2033,7 @@ static void testSetup() {
     if (s == "options") { G.state = ST_OPTIONS; return; }
     if (s == "help") { G.state = ST_HELP; return; }
     for (int i = 0; i < n; i++) { joinPlayer(i == 0 ? -1 : 1000 + i); if (G.bots) G.pl[i].bot = true; }
+    if (getenv("VS_RAILS")) G.opt.rails = atoi(getenv("VS_RAILS")) != 0;   // test: force ON RAILS on/off
     if (s == "lobby") { G.state = ST_LOBBY; return; }
     startGame();
     if (getenv("VS_PHASE")) { std::string ph = getenv("VS_PHASE"); if (ph == "surface") beginPhase(PH_SURFACE); else if (ph == "trench") beginPhase(PH_TRENCH); else if (ph == "tunnel") { G.level = 3; beginPhase(PH_TUNNEL); } else if (ph == "lightspeed") beginPhase(PH_LIGHTSPEED); else if (ph == "turret") { G.level = 2; beginPhase(PH_TURRET); } else if (ph == "tally") beginPhase(PH_TALLY); else if (ph == "escape") beginPhase(PH_ESCAPE); }
@@ -2005,6 +2107,7 @@ int main(int argc, char** argv) {
     if (!getenv("VS_MUTE")) AU.open(G.dir);
     applyAudioVol();
     Dev kb; kb.id = -1; kb.name = "KEYBOARD"; G.devs.push_back(kb);
+    wiiStart();
     testSetup();
     Uint64 last = SDL_GetPerformanceCounter(); double acc = 0; float fpsT = 0; int fpsN = 0;
     while (!G.quit) {
@@ -2024,6 +2127,7 @@ int main(int argc, char** argv) {
         if (G.shotFrame >= 0) dt = 1 / 60.0;
         if (dt > 0.1) dt = 0.1;
         fpsT += (float)dt; fpsN++; if (fpsT > 30) { printf("fps: %.1f (state %d wave %d phase %d enemies %d balls %d frags %d)\n", fpsN / fpsT, G.state, G.wave, G.phase, (int)G.en.size(), (int)G.balls.size(), (int)G.frags.size()); fpsT = 0; fpsN = 0; }
+        wiiSync(G.state != ST_GAME || G.paused || G.over);
         readDevs((float)dt, G.state == ST_GAME && !G.paused && !G.over);
         for (auto& d : G.devs) if (d.id != -1 && d.b[B_BACK] && d.b[B_START] && (pr(d, B_START) || pr(d, B_BACK))) { if (G.state == ST_GAME) { G.state = ST_TITLE; G.menuSel = 0; G.paused = false; } }
         if (G.state == ST_GAME) {
@@ -2043,6 +2147,7 @@ int main(int argc, char** argv) {
         if (shot) break;
     }
     saveCfg();
+    wiiStop();
     AU.close();
     SDL_DestroyRenderer(G.ren); SDL_DestroyWindow(G.win); SDL_Quit();
     printf("Vector Strike exit\n");
