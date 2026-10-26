@@ -29,6 +29,8 @@ Cloud session recipe (26 Oct): the emsdk installer was blocked in the sandbox, s
 Serve `web/dist` (`python3 -m http.server`) and open it in Chromium. Headless Playwright with `--use-angle=swiftshader` ran the title, the lobby and a level 1 fight at 60 fps (26 Oct).
 
 ## Deploying on Vercel
+- **Live (26 Oct):** Vercel project `vector-strike` (team RosenauProductions), https://vector-strike-gamma.vercel.app. Deployed from this branch as production. Vercel Authentication is on for every URL (`ssoProtection: all`), so only logged-in team members can open it.
+- Until `main` has the web build, a push to `main` would deploy a production site without `web/dist`. Merge this branch first, or redeploy from the branch.
 - In Vercel: Add New, then Project, then import `rosenauproductions/vector-strike`. Leave Framework as "Other". `vercel.json` already sets the output folder.
 - Pushes to `main` become production; other branches (like `claude/youthful-johnson-83rm5s`) get preview URLs.
 - After a code change, run `./build_web.sh` and commit `web/dist` with it.

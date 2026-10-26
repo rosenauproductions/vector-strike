@@ -6,7 +6,7 @@
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
 ## v18 (cloud session) — web build for Vercel + Wii U notes
-- **Web build**: the game now also compiles to WebAssembly and runs in the browser: keyboard, mouse and gamepads, split screen, sound, and scores saved in browser storage. `./build_web.sh` -> `web/dist/`, which is committed. `vercel.json` serves it as a static site. Details, build recipe and deploy steps are in `docs/WEB_BUILD.md`. Not deployed yet. Keep it private (Vercel Deployment Protection) unless it is built with `--no-pack`, because of the personal-use models.
+- **Web build**: the game now also compiles to WebAssembly and runs in the browser: keyboard, mouse and gamepads, split screen, sound, and scores saved in browser storage. `./build_web.sh` -> `web/dist/`, which is committed. `vercel.json` serves it as a static site. Details, build recipe and deploy steps are in `docs/WEB_BUILD.md`. Deployed 26 Oct to https://vector-strike-gamma.vercel.app (Vercel project `vector-strike`, Vercel login required on every URL because of the personal-use models).
 - Desktop code changes, all small: the main loop body moved into `mainTick()`; the Wii driver is compiled out under `__EMSCRIPTEN__`; joining with a Wii remote now uses `wiiRumble()`. The desktop binary is otherwise unchanged (checked with a 4-bot run). `dist-beta` is refreshed.
 - **Wii U**: feasibility notes and a work list in `docs/WIIU_PORT.md` (not started).
 
