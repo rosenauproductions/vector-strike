@@ -2,8 +2,13 @@
 // Each wave: dogfight the interceptors, strafe the surface towers, then run the trench and hit the exhaust port.
 #include "gfx.h"
 #include "audio.h"
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+struct Wiimote;   // web build: no Bluetooth Wii driver (browsers can't open raw Bluetooth); pads, keyboard and mouse only
+#else
 #include "wii/manager.h"
 #include "wii/sim.h"
+#endif
 #include <memory>
 #include <cstdio>
 #include <cstdlib>
@@ -290,6 +295,9 @@ static void saveCfg() {
     FILE* f = fopen(G.cfgPath.c_str(), "w"); if (!f) return;
     fprintf(f, "res=%d\nglow=%d\nshake=%d\nsfx=%d\nmusic=%d\ninvert=%d\nturn=%d\nchase=%d\ntrench=%d\nradar=%d\nbest=%d\nbest_wave=%d\nrails=%d\nfoes=%d\n", G.opt.res, G.opt.glow, G.opt.shake, G.opt.sfx, G.opt.mus, G.opt.invert, G.opt.turn, G.opt.chase, G.opt.trench, G.opt.radar, G.opt.best, G.opt.bestWave, G.opt.rails, G.opt.foes);
     fclose(f);
+#ifdef __EMSCRIPTEN__
+    EM_ASM({ FS.syncfs(false, function (e) { if (e) console.warn('save failed', e); }); });   // /save is browser storage (IndexedDB)
+#endif
 }
 static void loadCfg() {
     FILE* f = fopen(G.cfgPath.c_str(), "r"); if (!f) return;
@@ -1698,6 +1706,7 @@ static int navAxis(Dev& d, int axis, float dt) {
 // ---------------------------------------------------------------- Wii remotes (src/wii = the Wii Lab driver)
 // Dolphin-style: the game runs its own Bluetooth search (menus/pause only - searching adds lag) and talks to each
 // remote over raw L2CAP. Forget the remotes in Batocera's Bluetooth settings first, then press 1+2 (or red sync).
+#ifndef __EMSCRIPTEN__
 static Manager WII; static bool WII_ON = false;
 static std::map<std::string, int> WII_IDS;   // mac -> stable device id, so a remote that drops comes back as the same player
 static void wiiRumble(int devId, int ms) { Dev* d = devById(devId); if (WII_ON && d && d->wii) WII.act("rumble", d->mac, ms); }
@@ -1768,6 +1777,15 @@ static void wiiRead(Dev& d, float dt, bool inGame) {
     { static double nextLog = 0; double t = SDL_GetTicks() / 1000.0; if (t > nextLog) { nextLog = t + 10; printf("wii: %s dots %d pointer %s %.2f %.2f roll %.0f deg battery %d\n", d.mac.c_str(), n, d.ptrOk ? "ok" : "lost", d.ptr.x, d.ptr.y, d.roll * 57.3f, st.battery); } }
     d.wii->noteFrameSample(st.buttons);
 }
+#else
+static const bool WII_ON = false; static struct { std::string status() { return ""; } } WII;
+static void wiiRumble(int, int) {}
+static void wiiLeds(Dev&, int) {}
+static void wiiStart() { printf("wii: not available in the web build\n"); }
+static void wiiStop() {}
+static void wiiSync(bool) {}
+static void wiiRead(Dev&, float, bool) {}
+#endif
 static void readDevs(float dt, bool inGame) {
     int mx, my; Uint32 mb = SDL_GetMouseState(&mx, &my);
     for (auto& d : G.devs) {
@@ -1847,7 +1865,7 @@ static void joinPlayer(int devId) {
     for (int i = 0; i < 4; i++) if (!G.pl[i].joined) {
         Player& p = G.pl[i]; p = Player(); p.joined = true; p.dev = devId; p.idx = i; p.col = PCOL[i]; p.invert = G.opt.invert;
         Dev* d = devById(devId); if (d && d->gc) SDL_GameControllerSetPlayerIndex(d->gc, i);
-        if (d && d->wii) { wiiLeds(*d, i); WII.act("rumble", d->mac, 150); if (!G.opt.rails) { G.opt.rails = true; printf("lobby: Wii remote joined - ON RAILS\n"); } }
+        if (d && d->wii) { wiiLeds(*d, i); wiiRumble(d->id, 150); if (!G.opt.rails) { G.opt.rails = true; printf("lobby: Wii remote joined - ON RAILS\n"); } }
         AU.play(SND_UI_OK, 0.7f); printf("lobby: P%d joined (%s)\n", i + 1, devId == -1 ? "keyboard" : d ? d->name.c_str() : "test");
         return;
     }
@@ -2120,62 +2138,10 @@ static void testSetup() {
     }
 }
 
-int main(int argc, char** argv) {
-    (void)argc; (void)argv;
-    setvbuf(stdout, nullptr, _IOLBF, 0);
-    printf("Vector Strike starting\n");
-    SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0");
-    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) { printf("SDL_Init failed: %s\n", SDL_GetError()); return 1; }
-    SDL_version lv; SDL_GetVersion(&lv); printf("sdl: %d.%d.%d, video driver %s\n", lv.major, lv.minor, lv.patch, SDL_GetCurrentVideoDriver());
-    const char* home = getenv("VS_HOME"); char* base = SDL_GetBasePath();
-    G.dir = home ? std::string(home) + "/" : (base ? base : "./"); if (base) SDL_free(base);
-    G.cfgPath = G.dir + "vectorstrike.cfg";
-    loadCfg(); buildModels();
-    // optional model pack (your own wireframes made with tools/glb2vsm.py) - falls back to the built-in ships
-    if (!getenv("VS_NOPACK")) {
-        std::string md = G.dir + "modelpack/";
-        if (loadVsm(md + "player.vsm", PK_PLAYER)) { MP = &PK_PLAYER; S_PLAYER = 5.5f; }
-        if (loadVsm(md + "enemy.vsm", PK_ENEMY)) { ME = &PK_ENEMY; S_ENEMY = 5.5f; }   // about the X-wing's size
-        loadVsm(md + "cockpit.vsm", PK_COCKPIT);
-        if (loadVsm(md + "ywing.vsm", PK_YWING)) NSHIPS = 2;
-        loadVsm(md + "arwing.vsm", PK_ARWING); loadVsm(md + "atat.vsm", PK_ATAT); loadVsm(md + "speeder.vsm", PK_SPEEDER); loadVsm(md + "probe.vsm", PK_PROBE); loadVsm(md + "hturret.vsm", PK_HTURRET);
-        if (NSHIPS == 2 && loadVsm(md + "bwing.vsm", PK_BWING)) { NSHIPS = 3; loadVsm(md + "bwing_ck.vsm", PK_BWING_CK); }
-        loadVsm(md + "falcon.vsm", PK_FALCON); loadVsm(md + "destroyer.vsm", PK_DESTROYER);
-        loadVsm(md + "ace.vsm", PK_ACE);
-        { const char* fn[7] = { "player_far", "enemy_far", "ywing_far", "bwing_far", "falcon_far", "destroyer_far", "ace_far" }; Model* full[7] = { &PK_PLAYER, &PK_ENEMY, &PK_YWING, &PK_BWING, &PK_FALCON, &PK_DESTROYER, &PK_ACE };
-          for (int i = 0; i < 7; i++) if (!full[i]->v.empty() && !getenv("VS_NOFAR") && loadVsm(md + fn[i] + ".vsm", PK_FAR[i])) full[i]->far = &PK_FAR[i]; }
-        if (loadVsm(md + "trench.vsm", PK_TRENCH)) { for (auto& v : PK_TRENCH.v) TRENCH_TILE = std::max(TRENCH_TILE, v.z); }
-        if (loadVsm(md + "station.vsm", PK_STATION)) { MS = &PK_STATION; S_STATION = 1.0f; }
-    }
-    { Rng sr; sr.s = 31337; for (int i = 0; i < 420; i++) { V3 d(sr.range(-1, 1), sr.range(-1, 1), sr.range(-1, 1)); if (len3(d) > 1 || len3(d) < 0.1f) { i--; continue; } G.sky.push_back(norm3(d)); } }
-    if (getenv("VS_TRLINES")) TRENCH_LINES = atoi(getenv("VS_TRLINES"));   // test: trench detail
-    if (getenv("VS_STR")) ST_RADIUS = (float)atof(getenv("VS_STR"));   // test: battle station radius
-    if (getenv("VS_WARP")) sscanf(getenv("VS_WARP"), "%f,%f", &SHIPS[0].warpY, &SHIPS[0].warpZ);   // test: cockpit wing warp
-    int eyeShip = getenv("VS_SHIP") ? atoi(getenv("VS_SHIP")) : 0;
-    if (getenv("VS_EYE")) sscanf(getenv("VS_EYE"), "%f,%f,%f", &SHIPS[eyeShip % 3].eye.x, &SHIPS[eyeShip % 3].eye.y, &SHIPS[eyeShip % 3].eye.z);   // test: cockpit seat position (model units)
-    if (getenv("VS_SHOT")) G.shotFrame = atoi(getenv("VS_SHOT"));
-    if (getenv("VS_SHOT_PATH")) G.shotPath = getenv("VS_SHOT_PATH");
-    if (getenv("VS_BOTS")) G.bots = true;
-    if (getenv("VS_RES")) G.opt.res = atoi(getenv("VS_RES"));
-    Uint32 wf = SDL_WINDOW_FULLSCREEN_DESKTOP; int ww = 1280, wh = 720;
-    if (getenv("VS_WINDOW")) { wf = 0; sscanf(getenv("VS_WINDOW"), "%dx%d", &ww, &wh); }
-    G.win = SDL_CreateWindow("Vector Strike", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, ww, wh, wf | SDL_WINDOW_ALLOW_HIGHDPI);
-    if (!G.win) { printf("window failed: %s\n", SDL_GetError()); return 1; }
-    G.ren = SDL_CreateRenderer(G.win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_TARGETTEXTURE);
-    if (!G.ren) G.ren = SDL_CreateRenderer(G.win, -1, SDL_RENDERER_TARGETTEXTURE);
-    if (!G.ren) { printf("renderer failed: %s\n", SDL_GetError()); return 1; }
-    SDL_RendererInfo ri; SDL_GetRendererInfo(G.ren, &ri); printf("renderer: %s\n", ri.name);
-    SDL_ShowCursor(SDL_DISABLE);
-    setupTarget();
-    if (getenv("VS_EXPORT_SOUNDS")) { AU.build(); AU.exportWavs(getenv("VS_EXPORT_SOUNDS")); return 0; }
-    if (!getenv("VS_MUTE")) AU.open(G.dir);
-    applyAudioVol();
-    Dev kb; kb.id = -1; kb.name = "KEYBOARD"; G.devs.push_back(kb);
-    wiiStart();
-    testSetup();
-    Uint64 last = SDL_GetPerformanceCounter(); double acc = 0; float fpsT = 0; int fpsN = 0;
-    while (!G.quit) {
+// one frame: events, input, fixed 60 Hz simulation steps, render. The desktop build loops on it; the web build
+// hands it to the browser (requestAnimationFrame) because a page can't block in a loop of its own.
+static void mainTick() {
+    static Uint64 last = SDL_GetPerformanceCounter(); static double acc = 0; static float fpsT = 0; static int fpsN = 0;
         for (auto& d : G.devs) d.mouseMoved = false;
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -2209,8 +2175,79 @@ int main(int argc, char** argv) {
         if (benchN && G.frame == 10 + benchN) { double s = (double)(SDL_GetPerformanceCounter() - benchT0) / SDL_GetPerformanceFrequency(); printf("bench: %d frames in %.2fs = %.1f fps\n", benchN, s, benchN / s); G.quit = true; }
         bool shot = G.shotFrame >= 0 && G.frame == G.shotFrame;
         renderFrame(shot);
-        if (shot) break;
+        if (shot) G.quit = true;
+#ifdef __EMSCRIPTEN__
+        if (G.quit) { saveCfg(); emscripten_cancel_main_loop(); EM_ASM({ setTimeout(function () { location.reload(); }, 300); }); }   // QUIT on the web: back to the start page
+#endif
     }
+static int gameMain() {
+    setvbuf(stdout, nullptr, _IOLBF, 0);
+    printf("Vector Strike starting\n");
+    SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0");
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) { printf("SDL_Init failed: %s\n", SDL_GetError()); return 1; }
+    SDL_version lv; SDL_GetVersion(&lv); printf("sdl: %d.%d.%d, video driver %s\n", lv.major, lv.minor, lv.patch, SDL_GetCurrentVideoDriver());
+    const char* home = getenv("VS_HOME"); char* base = SDL_GetBasePath();
+    G.dir = home ? std::string(home) + "/" : (base ? base : "./"); if (base) SDL_free(base);
+    G.cfgPath = G.dir + "vectorstrike.cfg";
+#ifdef __EMSCRIPTEN__
+    G.cfgPath = "/save/vectorstrike.cfg";   // the page mounts /save (IndexedDB) so scores and options survive a reload
+#endif
+    loadCfg(); buildModels();
+    // optional model pack (your own wireframes made with tools/glb2vsm.py) - falls back to the built-in ships
+    if (!getenv("VS_NOPACK")) {
+        std::string md = G.dir + "modelpack/";
+        if (loadVsm(md + "player.vsm", PK_PLAYER)) { MP = &PK_PLAYER; S_PLAYER = 5.5f; }
+        if (loadVsm(md + "enemy.vsm", PK_ENEMY)) { ME = &PK_ENEMY; S_ENEMY = 5.5f; }   // about the X-wing's size
+        loadVsm(md + "cockpit.vsm", PK_COCKPIT);
+        if (loadVsm(md + "ywing.vsm", PK_YWING)) NSHIPS = 2;
+        loadVsm(md + "arwing.vsm", PK_ARWING); loadVsm(md + "atat.vsm", PK_ATAT); loadVsm(md + "speeder.vsm", PK_SPEEDER); loadVsm(md + "probe.vsm", PK_PROBE); loadVsm(md + "hturret.vsm", PK_HTURRET);
+        if (NSHIPS == 2 && loadVsm(md + "bwing.vsm", PK_BWING)) { NSHIPS = 3; loadVsm(md + "bwing_ck.vsm", PK_BWING_CK); }
+        loadVsm(md + "falcon.vsm", PK_FALCON); loadVsm(md + "destroyer.vsm", PK_DESTROYER);
+        loadVsm(md + "ace.vsm", PK_ACE);
+        { const char* fn[7] = { "player_far", "enemy_far", "ywing_far", "bwing_far", "falcon_far", "destroyer_far", "ace_far" }; Model* full[7] = { &PK_PLAYER, &PK_ENEMY, &PK_YWING, &PK_BWING, &PK_FALCON, &PK_DESTROYER, &PK_ACE };
+          for (int i = 0; i < 7; i++) if (!full[i]->v.empty() && !getenv("VS_NOFAR") && loadVsm(md + fn[i] + ".vsm", PK_FAR[i])) full[i]->far = &PK_FAR[i]; }
+        if (loadVsm(md + "trench.vsm", PK_TRENCH)) { for (auto& v : PK_TRENCH.v) TRENCH_TILE = std::max(TRENCH_TILE, v.z); }
+        if (loadVsm(md + "station.vsm", PK_STATION)) { MS = &PK_STATION; S_STATION = 1.0f; }
+    }
+    { Rng sr; sr.s = 31337; for (int i = 0; i < 420; i++) { V3 d(sr.range(-1, 1), sr.range(-1, 1), sr.range(-1, 1)); if (len3(d) > 1 || len3(d) < 0.1f) { i--; continue; } G.sky.push_back(norm3(d)); } }
+    if (getenv("VS_TRLINES")) TRENCH_LINES = atoi(getenv("VS_TRLINES"));   // test: trench detail
+    if (getenv("VS_STR")) ST_RADIUS = (float)atof(getenv("VS_STR"));   // test: battle station radius
+    if (getenv("VS_WARP")) sscanf(getenv("VS_WARP"), "%f,%f", &SHIPS[0].warpY, &SHIPS[0].warpZ);   // test: cockpit wing warp
+    int eyeShip = getenv("VS_SHIP") ? atoi(getenv("VS_SHIP")) : 0;
+    if (getenv("VS_EYE")) sscanf(getenv("VS_EYE"), "%f,%f,%f", &SHIPS[eyeShip % 3].eye.x, &SHIPS[eyeShip % 3].eye.y, &SHIPS[eyeShip % 3].eye.z);   // test: cockpit seat position (model units)
+    if (getenv("VS_SHOT")) G.shotFrame = atoi(getenv("VS_SHOT"));
+    if (getenv("VS_SHOT_PATH")) G.shotPath = getenv("VS_SHOT_PATH");
+    if (getenv("VS_BOTS")) G.bots = true;
+    if (getenv("VS_RES")) G.opt.res = atoi(getenv("VS_RES"));
+    Uint32 wf = SDL_WINDOW_FULLSCREEN_DESKTOP; int ww = 1280, wh = 720;
+    if (getenv("VS_WINDOW")) { wf = 0; sscanf(getenv("VS_WINDOW"), "%dx%d", &ww, &wh); }
+#ifdef __EMSCRIPTEN__
+    // web: the canvas fills the browser window (CSS); a resizable SDL window follows the canvas's CSS size
+    wf = SDL_WINDOW_RESIZABLE; ww = EM_ASM_INT({ return window.innerWidth; }); wh = EM_ASM_INT({ return window.innerHeight; });
+#else
+    wf |= SDL_WINDOW_ALLOW_HIGHDPI;
+#endif
+    G.win = SDL_CreateWindow("Vector Strike", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, ww, wh, wf);
+    if (!G.win) { printf("window failed: %s\n", SDL_GetError()); return 1; }
+    G.ren = SDL_CreateRenderer(G.win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_TARGETTEXTURE);
+    if (!G.ren) G.ren = SDL_CreateRenderer(G.win, -1, SDL_RENDERER_TARGETTEXTURE);
+    if (!G.ren) { printf("renderer failed: %s\n", SDL_GetError()); return 1; }
+    SDL_RendererInfo ri; SDL_GetRendererInfo(G.ren, &ri); printf("renderer: %s\n", ri.name);
+    SDL_ShowCursor(SDL_DISABLE);
+    setupTarget();
+    if (getenv("VS_EXPORT_SOUNDS")) { AU.build(); AU.exportWavs(getenv("VS_EXPORT_SOUNDS")); return 0; }
+    if (!getenv("VS_MUTE")) AU.open(G.dir);
+    applyAudioVol();
+    Dev kb; kb.id = -1; kb.name = "KEYBOARD"; G.devs.push_back(kb);
+    wiiStart();
+    testSetup();
+#ifdef __EMSCRIPTEN__
+    emscripten_set_main_loop(mainTick, 0, 0);   // the browser calls mainTick every frame from now on
+    return 0;
+#else
+    while (!G.quit) mainTick();
+#endif
     saveCfg();
     wiiStop();
     AU.close();
@@ -2218,3 +2255,7 @@ int main(int argc, char** argv) {
     printf("Vector Strike exit\n");
     return 0;
 }
+int main(int, char**) { return gameMain(); }
+#ifdef __EMSCRIPTEN__
+extern "C" EMSCRIPTEN_KEEPALIVE void vs_start() { gameMain(); }   // the web page calls this on the first click (browsers only allow sound after one)
+#endif

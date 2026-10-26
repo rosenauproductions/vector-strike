@@ -5,6 +5,11 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v18 (cloud session) — web build for Vercel + Wii U notes
+- **Web build**: the game now also compiles to WebAssembly and runs in the browser: keyboard, mouse and gamepads, split screen, sound, and scores saved in browser storage. `./build_web.sh` -> `web/dist/`, which is committed. `vercel.json` serves it as a static site. Details, build recipe and deploy steps are in `docs/WEB_BUILD.md`. Not deployed yet. Keep it private (Vercel Deployment Protection) unless it is built with `--no-pack`, because of the personal-use models.
+- Desktop code changes, all small: the main loop body moved into `mainTick()`; the Wii driver is compiled out under `__EMSCRIPTEN__`; joining with a Wii remote now uses `wiiRumble()`. The desktop binary is otherwise unchanged (checked with a 4-bot run). `dist-beta` is refreshed.
+- **Wii U**: feasibility notes and a work list in `docs/WIIU_PORT.md` (not started).
+
 ## v17 BETA (cloud session) — tailing fighters overtake you (`dist-beta/vectorstrike_beta.x86_64`, md5 6814f26a...)
 Not deployed yet; no model changes.
 - Open space: a fighter that latches on to your tail now powers past you after 1.8-3.8 s (Vader 3.5-6 s), new state 5 in `updateFighters`. It surges by on one side (the chase view stays on while it goes past), then sits about 85 ahead of you for 2.4-3.4 s (Vader 1.8-2.6 s, jinking harder), matching your speed with a gentle weave so you can line it up. "IT OVERSHOT - NOW GET IT" / "VADER OVERSHOT - GET HIM". The red tail warning clears as soon as it is in front. Then it breaks away and comes round again. In a 4-bot soak, 68 of 86 tails ended with an overtake.
