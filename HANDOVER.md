@@ -5,6 +5,14 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## USB Lab (26 Oct 2026) — side tool in `usblab/`
+After a Batocera OS update USB became unstable and the Xbox One wireless dongle stopped connecting pads. `usblab/` is a separate Batocera port that diagnoses this as a "game" (reuses `src/gfx.h`). Full notes: `usblab/README.md`.
+- Screen: CLEAN timer (time without a USB fault, best saved in `usblab.cfg`), USB device list from sysfs (speed, driver, ASLEEP), Xbox dongle checklist (USB / xone driver / firmware `xow_dongle*.bin` / awake / pads, BACK+B or P = pairing via the xone `pairing` sysfs switch), port map per bus with kernel errors per port, raw SDL pad testers (press everything -> VERIFIED, LOST on drop), live `/dev/kmsg` USB lines sorted into enumeration errors / resets / over-current / controller died / firmware / HID errors, and a plain-language DIAGNOSIS.
+- Actions: BACK+A/M mark problem, BACK+X/F power-saving off until reboot (press twice), BACK+Y/S snapshot, BACK+START hold / Esc quit.
+- Reports: `roms/ports/usblab/reports/usblab-<time>.txt` + `-start/-end/-snapN.txt` (from `usblab/snapshot.sh`, also runnable alone over SSH).
+- Tested in the cloud only (fake sysfs tree `USBLAB_SYSROOT`, `USBLAB_DEMO`, virtual pad `USBLAB_VPAD`); not yet run on the box. Prebuilt binary `usblab/dist/usblab.x86_64` md5 `e0718adab06ded45f8e55b4386795677`.
+- Deploy: `usblab/dist/usblab.x86_64` + `usblab/snapshot.sh` -> `roms/ports/usblab/`; `usblab/pkg/UsbLab.sh(.keys)` -> `roms/ports/`; Update game lists.
+
 ## v7 (24 Oct ~18:10)
 - Options: CHASE DISTANCE 1-10 (5 = default; 0.52x-1.6x of 5.5 ship-scales back, height scales too), saved as `chase=`. Tail-chase framing still pulls further back when needed.
 
