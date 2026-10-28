@@ -1,9 +1,34 @@
-# Vector Strike — handover (25 Oct 2026, v14)
+# Vector Strike — handover (28 Oct 2026, v19)
 
 **Code lives on GitHub: `rosenauproductions/vector-strike` (private, branch main).** Cloud sessions: add_repo it and read CLAUDE.md + HANDOVER.md in the repo (HANDOVER.md there is the canonical copy of this doc). Pushed 24 Oct ~21:05 with full history.
 
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
+
+## v19 (28 Oct, Cowork session) — bomber gauntlet, tower fight every wave, Falcon crew stations (md5 690d3b1d186e7612db12f04b500556b5)
+`dist-beta/vectorstrike_beta.x86_64` = this build. **Not deployed yet**: the Batocera share wasn't mounted on Chris's Mac when it was built. Deploy as the only game (`roms/ports/vectorstrike/vectorstrike.x86_64`, no backup). No model changes. `web/dist` was NOT rebuilt (no emcc in that session), so the web build is still v18.
+- **Level 1 bomber run (the Y-wings), destroyer to destroyer** (`setupEscortRun` / `updateEscortRun` in levels.h, `updateCapital` / `updateFighters` in main.cpp):
+  - **Route:** every bend of the bombers' S-route now has a Star Destroyer lying broadside across it. The bombers skim about 34 over its deck, crossing a little ahead of the middle and clear of the bridge tower. Every third one, they dive under the keel instead. `Escort.lift` eases them clear of a hull if a drifting destroyer gets in the way.
+  - **Flak:** within 1700, each destroyer fires green turbolaser bolts at the nearest bomber every 0.12–0.3 s. The bolts lead the bomber and mostly miss, with flak rings bursting around it. Only 1.5 % of shots hit; it's mostly spectacle.
+  - **Fighters on the bombers:** fighters going for a bomber (`escortTargetOf`, about 3 in 4) launch off the destroyers. Each slots in 50–80 behind its bomber, weaving, so it sits between you and the bomber, and fires green bolts (33 % hit).
+  - **Bomber toughness:** bombers have 14 + wave hit points (was 10 + wave). Their tail gunners now kill only 10 % of the time (was 25 %), so protecting them is the player's job.
+  - **Measured:** about 11–16 hits over the run, both bombers usually reach the break-off. Test switch `VS_ESCLOG=1` prints `esc: flak hit` / `esc: fighter hit`.
+  - **Autopilot:** bots and ON RAILS players use new `hullAvoid()` (runs after `formationAdjust`). It looks 40–280 ahead and pulls up or down off a hull. Hull bounces dropped from 5–7 to 0–5 per run with 4 bots.
+- **Tower fight before every level-1 trench** (it used to start at wave 2), like the arcade:
+  - **HUD:** `TOWER TOPS n / m    TRENCH IN x`.
+  - **Bonus:** destroying every top gives all joined players +10000 ("ALL TOWER TOPS DESTROYED").
+  - **Shields:** leaving the towers gives +1 shield, or +2 for a clean sweep (max 6). The message shows the tally.
+  - **Tower fire:** towers fire every 1.6–4.4 s, with at most `1 + wave/2 + players/2` fireballs in the air.
+  - **Trench entry:** for the first 2.5 s of the trench, ships are pulled down under the lip, and the trench-lip guns stay quiet for 3 s. Without this, ships coming off the towers stayed above the lip and got shredded (4 bots: about 21 trench hits vs about 4; now back to normal).
+  - Log line: `game: towers 5 / 32`.
+- **Level 2 turret fight: each player mans a different part of the freighter**, assigned in join order (log line `game: P3 mans the PILOT`):
+  1. **TOP GUN** and 2. **BOTTOM GUN** work as before. The old top-rear / bottom-rear duplicates are gone.
+  3. **PILOT** sits in the cockpit (`cockpitEye`, model point 0.58/0.075/0.42 × FAL_S, behind a canopy-strut and console overlay). The stick jinks the whole freighter (±170 × ±95, rolls with it; `G.falRoll`). While jinking, shots from ahead spray 2.6× wider. Fire = the forward guns on the mandibles, aimed at the centre.
+  4. **CO-PILOT** sits in the next seat. Stick or Wii pointer moves a sight; fire = concussion missile (0.8 s reload bar, 2.6× wider lock, 3 damage, a blast that kills fighters within 80).
+  - Fighters shooting from ahead hit the cockpit crew, otherwise the gunner on that side.
+  - Fighters no longer latch onto the freighter's "tail" in this phase, so there are no HELP markers or "SHAKEN OFF" messages there.
+  - Bots fly and shoot every station. 4 bots: kills 11 / 2 / 2 / 7, missiles took out extra fighters.
+- **Soak test, 900 s each, bots:** 1 / 2 / 4 players from level 1, 4 from level 2, 3 from level 3. No crashes, every level progresses, exit 0.
 
 ## v18 (cloud session) — web build for Vercel + Wii U notes
 - **Web build**: the game now also compiles to WebAssembly and runs in the browser: keyboard, mouse and gamepads, split screen, sound, and scores saved in browser storage. `./build_web.sh` -> `web/dist/`, which is committed. `vercel.json` serves it as a static site. Details, build recipe and deploy steps are in `docs/WEB_BUILD.md`. Deployed 26 Oct to https://vector-strike-gamma.vercel.app (Vercel project `vector-strike`, Vercel login required on every URL because of the personal-use models).
@@ -145,7 +170,7 @@ Code for the new parts is in `src/levels.h` (included once from main.cpp). The g
 - Source: `claude/vector-strike-source-bundle.txt` (files split by `===== FILE: path =====`). Build: `build.sh` (copy `/usr/include/x86_64-linux-gnu/SDL2/_real_SDL_config.h` into `inc/SDL2/`).
 
 ## Design
-- Every wave: **Space** (shoot N interceptors; N = (5+2·wave) × (1+0.45 per extra player); they fire fireballs) → **Surface** from wave 2 (tower tops to shoot, towers to fly over) → **Trench** (wall turrets; catwalks from wave 2, double catwalks wave 5+; exhaust port at the end). Port hit → climb out → Citadel explodes → bonus tally (port hitter 25 000, others 10 000, 2 000 per shield, +1 shield). Missing the port = "go around", trench restarts.
+- Every wave: **Space** (shoot N interceptors; N = (5+2·wave) × (1+0.45 per extra player); they fire fireballs) → **Surface** tower fight on every level-1 wave (tower tops to shoot, towers to fly over) → **Trench** (wall turrets; catwalks from wave 2, double catwalks wave 5+; exhaust port at the end). Port hit → climb out → Citadel explodes → bonus tally (port hitter 25 000, others 10 000, 2 000 per shield, +1 shield). Missing the port = "go around", trench restarts.
 - Shoot the orange fireballs (+50). Fighter 1000 (2 hits from wave 4), tower top 250, turret 300, port 5000.
 - 6 shields. A player at 0 is out until the next stage if anyone is still flying; all down = game over. Start level EASY/MEDIUM/HARD (wave 1/3/5, start bonus 0/40k/100k). High score + best wave saved in `vectorstrike.cfg`.
 - Split screen: 1 full, 2 top/bottom (narrower FOV), 3 = quadrants + squadron board, 4 quadrants. Players fly staggered 12 units apart so wingmen are visible ahead. Resolution option Auto/720p/1080p/1440p/4K.

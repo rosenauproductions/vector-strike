@@ -10,14 +10,20 @@
 
 static const char* LEVELNAMES[4] = { "", "BATTLE STATION", "ASTEROID ESCAPE", "REACTOR RUN" };
 
-// turret fight: a fighter's shot at the freighter hits the gunner on that side (top / bottom), sprays a little,
-// and fighters fire less often (the freighter can't dodge)
+// turret fight: a fighter's shot at the freighter hits the crew member nearest it - the cockpit crew for a shot from
+// ahead, otherwise the gunner on that side (top / bottom) - sprays a little (a lot while the pilot is jinking), and
+// fighters fire less often
 static bool turretShot(Enemy& e) {
     if (G.phase != PH_TURRET) return false;
-    int side = e.p.y < G.falP.y ? 1 : 0, tgt = -1;
-    for (auto& p : G.pl) if (p.joined && !p.down && p.turret == side) { tgt = p.idx; break; }
-    if (tgt < 0) tgt = e.tgt;
-    e.cd *= 1.7f; fireBall(e.p + norm3(e.v) * 7, tgt, 0.9f, V3(R.range(-14, 14), R.range(-9, 9), R.range(-14, 14)));
+    int side = e.p.y < G.falP.y ? 1 : 0; bool front = e.p.z > G.falP.z + 60;
+    std::vector<int> cand; float spray = 1;
+    for (auto& p : G.pl) if (p.joined && !p.down) {
+        if (p.turret == 2 && len(p.aim) > 0.35f) spray = 2.6f;   // evasive flying
+        if (front && p.turret >= 2) cand.push_back(p.idx);
+    }
+    if (cand.empty()) for (auto& p : G.pl) if (p.joined && !p.down && p.turret == side) cand.push_back(p.idx);
+    int tgt = cand.empty() ? e.tgt : cand[R.i((int)cand.size())];
+    e.cd *= 1.7f; fireBall(e.p + norm3(e.v) * 7, tgt, 0.9f, V3(R.range(-14, 14), R.range(-9, 9), R.range(-14, 14)) * spray);
     return true;
 }
 // ---------------------------------------------------------------- the enemy ace
@@ -359,11 +365,16 @@ static void drawLightspeed(Canvas& cv, const Cam& cam) {
 }
 
 // ---------------------------------------------------------------- level 2 opening: the freighter's gun turrets
-// Everyone mans a turret (P1 top, P2 bottom, P3 top-rear, P4 bottom-rear) while the freighter cruises toward the
-// asteroid field, still far ahead. Stick swings the turret; the quad cannon fires its top pair and bottom pair in turn.
+// Everyone mans a different part of the freighter while it cruises toward the asteroid field, still far ahead:
+//   1st player TOP GUN, 2nd BOTTOM GUN - stick swings the turret; the quad cannon fires its top pair and bottom pair in turn
+//   3rd PILOT    - in the cockpit: stick jinks the whole freighter (shots from ahead spray wide), fire = the forward guns
+//   4th CO-PILOT - in the cockpit: stick / pointer moves a sight, fire = concussion missiles (slow, wide lock, blast)
 static const float FAL_S = 15.3f;   // freighter draw scale (34.75 m)
-static V3 turretEye(const Player& p) { return G.falP + V3(0, (p.turret ? -1.f : 1.f) * 0.27f * FAL_S, 0); }
+static const char* STATION_NAME[4] = { "TOP GUN", "BOTTOM GUN", "PILOT", "CO-PILOT" };
+static V3 cockpitEye(const Player& p) { return G.falP + V3(p.turret == 3 ? 0.618f : 0.582f, 0.075f, 0.42f) * FAL_S; }   // two seats, side by side
+static V3 turretEye(const Player& p) { if (p.turret >= 2) return cockpitEye(p); return G.falP + V3(0, (p.turret ? -1.f : 1.f) * 0.27f * FAL_S, 0); }
 static void turretBasis(const Player& p, V3& f, V3& up) {
+    if (p.turret >= 2) { f = V3(0, 0, 1); up = V3(std::sin(G.falRoll), std::cos(G.falRoll), 0); return; }
     float s = p.turret ? -1.f : 1.f, cy = std::cos(p.tPitch);
     f = norm3(V3(std::sin(p.tYaw) * cy, s * std::sin(p.tPitch), std::cos(p.tYaw) * cy)); up = V3(0, s, 0);
 }
@@ -372,17 +383,30 @@ static void setupTurret() {
     G.falP = V3(0, 0, -7500); G.falSpeed = 95; G.turretDoneT = -1;
     int np = std::max(1, joinedCount());
     G.killsDone = 0; G.killsNeeded = foeN((5 + 2 * G.wave) * (1 + 0.35f * (np - 1))); G.spawnT = 2.5f; G.aceCd = 1e9f;
-    for (auto& p : G.pl) if (p.joined) { p.turret = p.idx & 1; p.tYaw = (p.idx >= 2) ? PI : 0; p.tPitch = 0.3f; p.pos = G.falP; p.fwd = V3(0, 0, 1); p.up = V3(0, 1, 0); p.speed = G.falSpeed; p.zoom = 0; }
+    G.falRoll = 0; int k = 0;
+    for (auto& p : G.pl) if (p.joined) {
+        p.turret = std::min(k++, 3); p.tYaw = 0; p.tPitch = 0.3f; p.aim = V2(); p.pos = G.falP; p.fwd = V3(0, 0, 1); p.up = V3(0, 1, 0); p.speed = G.falSpeed; p.zoom = 0;
+        static const char* hint[4] = { "TOP GUN - SWING ONTO THEM", "BOTTOM GUN - SWING ONTO THEM", "PILOT - STICK JINKS, FIRE FORWARD GUNS", "CO-PILOT - AIM AND FIRE MISSILES" };
+        pmsg(p, hint[p.turret]); p.msgT = 6;
+        printf("game: P%d mans the %s\n", p.idx + 1, STATION_NAME[p.turret]);
+    }
     char b[64]; snprintf(b, sizeof b, "MAN THE GUNS - %d FIGHTERS INCOMING", G.killsNeeded);
     setBanner("LEVEL 2 - WAVE " + std::to_string(G.wave), b, 3.5f);
 }
-static void turretAim(Player& p, float dt) {   // p.aim (stick) is a turn rate here
+static void turretAim(Player& p, float dt) {   // gunners: p.aim (stick) is a turn rate; pilot: jinks the ship; co-pilot: the sight
+    if (p.turret == 2) {
+        G.falP.x = clampf(G.falP.x + p.aim.x * 75 * dt, -170, 170); G.falP.y = clampf(G.falP.y + p.aim.y * 55 * dt, -95, 95);
+        G.falRoll += (-p.aim.x * 0.5f - G.falRoll) * std::min(1.f, dt * 3);
+    } else if (p.turret < 2) {
     p.tYaw += p.aim.x * 1.9f * turnMul() * dt; p.tPitch = clampf(p.tPitch + p.aim.y * 1.4f * turnMul() * dt, -0.08f, 1.5f);
+    }
     p.pos = G.falP; p.fwd = V3(0, 0, 1); p.up = V3(0, 1, 0); p.speed = G.falSpeed;
 }
 static void updateTurretPhase(float dt) {
     if (G.falP.z > -1800) G.falSpeed = std::max(35.f, G.falSpeed - 20 * dt);   // ease off before the field
     G.falP.z += G.falSpeed * dt;
+    bool pilot = false; for (auto& q : G.pl) if (q.joined && !q.down && q.turret == 2) pilot = true;
+    if (!pilot) { G.falRoll *= std::pow(0.3f, dt); G.falP.x *= std::pow(0.7f, dt); G.falP.y *= std::pow(0.7f, dt); }   // nobody flying: settle back on course
     int alive = 0; for (auto& e : G.en) if (!e.dead && e.kind == EN_FIGHTER) alive++;
     if (G.turretDoneT < 0 && G.killsDone >= G.killsNeeded) {
         G.turretDoneT = 0; for (auto& e : G.en) if (e.kind == EN_FIGHTER && !e.dead) { e.state = 1; e.hide = 99; }   // the rest break off
@@ -405,7 +429,32 @@ static void drawFalconFromTurret(Canvas& cv, const Cam& cam) {   // the hull rou
 static V3 tcp(const Cam& c, V3 q) { return c.p + c.r * q.x + c.u * q.y + c.f * q.z; }   // camera space -> world
 // quad cannon in camera space: barrels 0,1 = top pair, 2,3 = bottom pair
 static V3 turretBarrel(int i, float along) { float x = (i & 1) ? 0.075f : -0.075f, y = (i < 2) ? -0.2f : -0.31f; return V3(x * (1 - along * 0.25f), y + along * 0.05f, 1.25f + along * 1.6f); }
+// the freighter's cockpit, from the pilot's / co-pilot's seat: the round canopy's struts, the console along the bottom
+static void drawCockpitOverlay(Canvas& cv, const Player& p) {
+    const SDL_Rect& vp = p.vp; float u = vp.h / 1080.f, cx = vp.x + vp.w * 0.5f, cy = vp.y + vp.h * 0.5f;
+    Col frame(150, 160, 185), dark(5, 7, 12, 255);
+    float sx = p.turret == 3 ? -1.f : 1.f;   // the canopy's nose sits between the two seats
+    V2 hub(cx + sx * vp.w * 0.06f, cy - vp.h * 0.05f); float big = (float)(vp.w + vp.h);
+    const int N = 10; V2 in[N], mid[N];
+    for (int i = 0; i < N; i++) {
+        float a = (i + 0.5f) * 2 * PI / N; V2 d(std::cos(a), std::sin(a) * 0.85f);
+        in[i] = hub + d * (vp.h * 0.045f); mid[i] = hub + d * (vp.h * 0.42f);
+        cv.line(mid[i], hub + d * big, 4.5f * u, frame, 0.3f); cv.line(in[i], mid[i], 1.6f * u, withA(frame, 0.45f), 0.1f);   // thin near the middle: keep the view clear
+    }
+    for (int i = 0; i < N; i++) { cv.line(in[i], in[(i + 1) % N], 2.0f * u, withA(frame, 0.6f), 0.2f); cv.line(mid[i], mid[(i + 1) % N], 3.0f * u, frame, 0.25f); }
+    float y0 = vp.y + vp.h * 0.83f;   // console
+    cv.rect((float)vp.x, y0, (float)vp.w, vp.y + vp.h - y0, dark); cv.line(V2((float)vp.x, y0), V2((float)(vp.x + vp.w), y0), 3 * u, frame, 0.3f);
+    for (int i = 0; i < 7; i++) { float gx = vp.x + vp.w * (0.12f + i * 0.127f); cv.circle(V2(gx, y0 + vp.h * 0.06f), vp.h * 0.025f, 1.5f * u, withA(frame, 0.7f), 0.2f, 20);
+        float a = G.time * (0.7f + i * 0.31f) + i; cv.line(V2(gx, y0 + vp.h * 0.06f), V2(gx + std::cos(a) * vp.h * 0.02f, y0 + vp.h * 0.06f + std::sin(a) * vp.h * 0.02f), 1.5f * u, withA(p.col, 0.8f), 0.3f); }
+    if (p.turret == 3) {   // missile reload
+        float k = clampf(1 - p.fireCd / 0.8f, 0, 1), w = vp.w * 0.22f;
+        cv.rectLine(cx - w / 2, y0 + vp.h * 0.105f, w, 10 * u, 1.2f * u, withA(frame, 0.8f), 0.2f);
+        cv.rect(cx - w / 2, y0 + vp.h * 0.105f, w * k, 10 * u, k >= 1 ? p.col : withA(p.col, 0.5f));
+    }
+    FONT.draw(cv, p.turret == 3 ? "CO-PILOT  -  MISSILES" : "PILOT  -  STICK JINKS, FORWARD GUNS", V2(cx, vp.y + vp.h - 24 * u), 16 * u, withA(p.col, 0.85f), 1);
+}
 static void drawTurretOverlay(Canvas& cv, const Player& p) {
+    if (p.turret >= 2) { drawCockpitOverlay(cv, p); return; }
     const SDL_Rect& vp = p.vp; float u = vp.h / 1080.f, cx = vp.x + vp.w * 0.5f, cy = vp.y + vp.h * 0.5f, R = vp.h * 0.47f;
     const Cam& c = p.cam; Col frame(150, 160, 185), dark(5, 7, 12, 255);
     // outside the round window: the dark turret interior
@@ -439,9 +488,11 @@ static void drawTurretOverlay(Canvas& cv, const Player& p) {
 }
 
 // ---------------------------------------------------------------- level 1 opening: escort the bombers
-// Two bombers fly a winding S through the Star Destroyer fleet (the destroyers sit on the outside of each bend);
-// interceptors go for them as well as you. Near the station they break off for their run; you hold off one more
+// Two bombers fly a winding S through the Star Destroyer fleet, hopping from destroyer to destroyer: at every bend
+// they skim right over (or under) a destroyer lying broadside across the route, and its deck guns put up green flak
+// all round them. Interceptors launch off the destroyers and slot in on the bombers' tails - between you and them. Near the station they break off for their run; you hold off one more
 // group, then the report comes in: both bombers are down - it's up to you. (stage 0 escort, 1 cover, 2 report, 3 attack)
+static bool capInside1(const Game::Capital& c, V3 w, float margin);
 static V3 escortPath(float z) {
     float lam = std::max(1200.f, (G.runLen - 2600) / 5.f) / PI;   // about two and a half S bends
     float t = std::max(0.f, z - 250);   // starts dead ahead of you
@@ -453,20 +504,26 @@ static void setupEscortRun() {
     G.caps.clear();
     if (!PK_DESTROYER.v.empty()) {   // a destroyer on the outside of every bend
         float lam = std::max(1200.f, (G.runLen - 2600) / 5.f) / PI;
-        for (float z = 250 + lam * PI * 0.5f; z < G.runLen - 1800; z += lam * PI) {
+        int k = 0;
+        for (float z = 250 + lam * PI * 0.5f; z < G.runLen - 1800; z += lam * PI, k++) {
             V3 q = escortPath(z); float sd = q.x > 0 ? 1.f : -1.f;
-            Game::Capital c; c.p = V3(q.x + sd * R.range(780, 1000), R.range(-250, 150), z + R.range(-200, 200));
-            c.f = R.f() < 0.7f ? norm3(V3(sd * R.range(0.05f, 0.2f), 0, -1)) : norm3(V3(-sd * 0.9f, 0.04f, R.range(-0.4f, 0.4f)));
-            c.r = norm3(cross3(V3(0, 1, 0), c.f)); c.u = cross3(c.f, c.r); c.gunCd = R.range(1, 3); G.caps.push_back(c);
+            // broadside across the route at the top of the bend, nose toward the inside; the bombers' path crosses it a
+            // little ahead of the middle (clear of the bridge tower at the back), skimming just over the deck - every
+            // third one they dive underneath instead
+            Game::Capital c; float L = c.L;
+            c.f = norm3(V3(-sd, 0, R.range(-0.2f, 0.2f))); c.r = norm3(cross3(V3(0, 1, 0), c.f)); c.u = cross3(c.f, c.r);
+            bool under = k % 3 == 2; float qz = R.range(-0.05f, 0.35f), yl = under ? -(0.24f * L + 40) : 0.07f * L + 34;
+            c.p = q - c.f * (qz * L) - c.u * yl; c.gunCd = R.range(1, 3); c.flakCd = R.range(0.3f, 1.0f); G.caps.push_back(c);
         }
     }
-    for (int i = 0; i < 2; i++) { Game::Escort e; e.z = 250 + 40.f * i; e.off = V3(i ? 26.f : -26.f, i ? -8.f : 8.f, 0); e.hp = 10 + G.wave; e.p = escortPath(e.z) + e.off; e.f = V3(0, 0, 1); G.esc.push_back(e); }
+    for (int i = 0; i < 2; i++) { Game::Escort e; e.z = 250 + 40.f * i; e.off = V3(i ? 26.f : -26.f, i ? -8.f : 8.f, 0); e.hp = 14 + G.wave; e.p = escortPath(e.z) + e.off; e.f = V3(0, 0, 1); G.esc.push_back(e); }
     G.approach = false; G.escWaveT = 5; G.escWaveLeft = 0; G.aceCd = 1e9f;   // Vader waits for the cover fight
     setBanner("LEVEL 1 - WAVE " + std::to_string(G.wave), "FOLLOW THE BOMBERS IN - KEEP THE FIGHTERS OFF THEM", 3.5f);
 }
 static int escortsAlive() { int n = 0; for (auto& e : G.esc) if (e.alive && !e.gone) n++; return n; }
+static int ESC_HITS = 0;
 static void escortHit(int i) {
-    auto& e = G.esc[i]; if (!e.alive) return; e.hp -= 1; e.flash = 0.15f;
+    auto& e = G.esc[i]; if (!e.alive) return; e.hp -= 1; e.flash = 0.15f; ESC_HITS++;
     if (e.hp <= 0) { e.alive = false; explode3(e.p, 8, Col(255, 230, 160), e.f * 60); AU.play(SND_BOOM_L, 0.8f); setBanner("WE LOST A BOMBER", escortsAlive() ? "PROTECT THE OTHER ONE" : "BOTH BOMBERS GONE", 2.5f); printf("game: bomber %d shot down\n", i + 1); }
 }
 // fighters that go after a bomber instead of you: returns the bomber index, or -1
@@ -485,7 +542,15 @@ static void updateEscortRun(float dt) {
         e.flash = std::max(0.f, e.flash - dt); e.cd -= dt;
         if (G.escStage == 0) {   // fly the path, waiting for the squad if it falls behind
             float lag = e.z - sc.z; float spd = clampf(140 - (lag - 220) * 0.4f, 40, 200);   // stay just ahead of the squad: you follow them in
-            e.z += spd * dt; V3 np = escortPath(e.z) + e.off; e.f = norm3(np - e.p + V3(0, 0, 0.01f)); e.p = np;
+            e.z += spd * dt; V3 np = escortPath(e.z) + e.off;
+            V3 want;   // skim: never into a hull (the destroyers drift) - lift over the deck / drop below the keel
+            for (auto& c : G.caps) if (len3(np - c.p) < c.L * 1.3f + 60) {
+                float s = dot3(np + e.lift - c.p, c.u) > -0.08f * c.L ? 1.f : -1.f; V3 t = np;
+                for (int k = 0; k < 60 && capInside1(c, t, 26); k++) t += c.u * (s * 4);
+                if (len3(t - np) > len3(want)) want = t - np;
+            }
+            e.lift += (want - e.lift) * std::min(1.f, dt * (len3(want) > len3(e.lift) ? 6.f : 1.5f)); np += e.lift;
+            e.f = norm3(np - e.p + V3(0, 0, 0.01f)); e.p = np;
         } else {   // diving for the station: gone once well ahead
             e.p += e.f * (260 * dt); e.f = norm3(e.f + (norm3(G.stC - e.p) - e.f) * std::min(1.f, dt * 0.8f));
             if (e.p.z > sc.z + 2500 || len3(e.p - G.stC) < G.stR + 300) e.gone = true;
@@ -493,7 +558,7 @@ static void updateEscortRun(float dt) {
         if (e.cd <= 0) {   // tail gunners: shoot at the nearest interceptor
             e.cd = R.range(0.6f, 1.1f); float bd = 500; Enemy* tg = nullptr;
             for (auto& f : G.en) if (!f.dead && f.kind == EN_FIGHTER && !f.ace) { float d = len3(f.p - e.p); if (d < bd) { bd = d; tg = &f; } }
-            if (tg) { G.bolts.push_back({ e.p, tg->p, 0.2f, 0.2f, Col(255, 120, 70), 9, 0, 0 }); if (R.f() < 0.25f) { tg->dead = true; G.killsDone++; explode3(tg->p, 5, C_ENEMY, tg->v * 0.5f); AU.play(SND_BOOM_S, 0.5f); } }
+            if (tg) { G.bolts.push_back({ e.p, tg->p, 0.2f, 0.2f, Col(255, 120, 70), 9, 0, 0 }); if (R.f() < 0.1f) { tg->dead = true; G.killsDone++; explode3(tg->p, 5, C_ENEMY, tg->v * 0.5f); AU.play(SND_BOOM_S, 0.5f); } }
         }
     }
     if (G.escStage == 0) {   // the interceptors come in waves
@@ -509,7 +574,7 @@ static void updateEscortRun(float dt) {
         G.escStage = 1; G.escT = 0; G.killsDone = 0; G.killsNeeded = foeN(4 + G.wave + joinedCount()); G.aceCd = 6;
         if (escortsAlive()) setBanner("BOMBERS: GOING IN FOR OUR RUN", "COVER US - HOLD OFF THOSE FIGHTERS", 3.0f);
         else setBanner("NO BOMBERS LEFT", "HOLD OFF THOSE FIGHTERS", 3.0f);
-        printf("game: bombers break off (%d left), cover fight\n", escortsAlive());
+        printf("game: bombers break off (%d left, %d hits taken), cover fight\n", escortsAlive(), ESC_HITS);
     }
     if (G.escStage == 1 && (G.killsDone >= G.killsNeeded || G.escT > 45)) {
         G.escStage = 2; G.escT = 0; for (auto& e : G.esc) if (e.alive) { e.alive = false; e.gone = true; }
