@@ -605,7 +605,7 @@ static void playerFire(Player& p) {
         Enemy& e = G.en[i]; if (e.dead) continue;
         if ((e.kind == EN_FIGHTER || e.kind == EN_PURSUER) && e.state != 4) test(e.p, std::max(6.5f, S_ENEMY * (e.ace ? 1.25f : 1.1f)) * enemyVis(c.p, e.p) * (missile ? 2.6f : 1.f), 1, i);
         else if (e.kind == EN_REACTOR) test(e.p, 30 * shipOf(p).bomb, 1, i);
-        else if (e.kind == EN_TOWER && !e.capDead) test(e.p + V3(0, 2.6f, 0), 8.0f * shipOf(p).bomb, 1, i);
+        else if (e.kind == EN_TOWER && !e.capDead) test(e.p + V3(0, 4.6f, 0), 8.0f * shipOf(p).bomb, 1, i);
         else if (e.kind == EN_TURRET) test(e.p, 5.5f * shipOf(p).bomb, 1, i);
     }
     for (int i = 0; i < (int)G.balls.size(); i++) if (!G.balls[i].dead) test(G.balls[i].p, 5.0f, 2, i);
@@ -640,7 +640,7 @@ static void playerFire(Player& p) {
         if (e.kind == EN_PURSUER) { printf("game: P%d shot a pursuer\n", p.idx + 1); e.dead = true; p.kills++; p.score += 1000; explode3(e.p, 5, C_ENEMY, V3(0, 0, G.speed)); AU.play(SND_BOOM_S, 0.75f); }
         else if (e.kind == EN_FIGHTER) { e.dead = true; G.killsDone++; p.kills++; p.score += 1000; explode3(e.p, 5, C_ENEMY, V3(0, 0, G.speed)); AU.play(SND_BOOM_S, 0.75f); if (missile) missileSplash(p, e.p); }
         else if (e.kind == EN_TOWER) {
-            e.capDead = true; p.kills++; p.score += 250; explode3(e.p + V3(0, 3, 0), 5, C_TOWER, V3(0, 0, 0)); AU.play(SND_TOWER, 0.7f);
+            e.capDead = true; p.kills++; p.score += 250; explode3(e.p + V3(0, 4.6f, 0), 5, C_TOWER, V3(0, 0, 0)); AU.play(SND_TOWER, 0.7f);
             if (++G.towersHit == G.towersTotal && G.towersTotal > 0) {   // the arcade's big one: every tower top on the run
                 for (auto& q : G.pl) if (q.joined) q.score += 10000;
                 setBanner("ALL TOWER TOPS DESTROYED", "SQUAD BONUS +10000", 3.0f); AU.play(SND_WAVE, 0.9f);
@@ -890,7 +890,7 @@ static void updateTowersTurrets(float dt) {
         }
         if (canFire && e.cd <= 0 && relz > lo && relz < hi && aliveCount() > 0) {
             e.cd = (e.kind == EN_TOWER ? std::max(1.6f, 4.4f - 0.25f * G.wave) : std::max(1.0f, 3.2f - 0.18f * G.wave)) * R.range(0.8f, 1.3f);
-            V3 muzzle = e.kind == EN_TOWER ? e.p + V3(0, 3, 0) : e.p + V3(-e.side * 3.f, 0, 0);
+            V3 muzzle = e.kind == EN_TOWER ? e.p + V3(0, 4.6f, 0) : e.p + V3(-e.side * 3.f, 0, 0);
             fireBall(muzzle, randomAlive(), 0.9f);
         }
     }
@@ -917,7 +917,7 @@ static void collidePlayers(float zPrev) {
         if (!p.joined || p.down) continue;
         float z0 = zPrev + p.zoff, z1 = G.z + p.zoff;
         if (G.phase == PH_SURFACE) for (auto& e : G.en) if (!e.dead && e.kind == EN_TOWER && e.p.z + 5 > z0 && e.p.z - 5 <= z1) {
-            if (std::fabs(p.x - e.p.x) < 7.5f && p.y < GROUND_Y + e.h + (e.capDead ? 0 : 5)) { hitPlayer(p, "tower"); p.y = GROUND_Y + e.h + 9; }
+            if (std::fabs(p.x - e.p.x) < 7.5f && p.y < GROUND_Y + e.h + (e.capDead ? 0 : 9)) { hitPlayer(p, "tower"); p.y = GROUND_Y + e.h + 13; }
         }
         if (G.phase == PH_TUNNEL) {
             for (auto& b : BEAMS) if (b.z > z0 && b.z <= z1) {
@@ -1037,7 +1037,7 @@ static void botThink(Player& p, float dt, V2& desired, bool& fire) {
     for (auto& b : G.balls) if (!b.dead) { float d = b.p.z - me.z; if (d > 20 && d < 500 && d < best) { best = d; tgt = b.p; has = true; } }
     if (!has) for (auto& e : G.en) {
         if (e.dead) continue; if (e.kind == EN_FIGHTER && e.state == 2) continue; if (e.kind == EN_TOWER && e.capDead) continue;
-        V3 c = e.kind == EN_TOWER ? e.p + V3(0, 3, 0) : e.p; float d = c.z - me.z; if (d > 30 && d < 900 && d < best) { best = d; tgt = c; has = true; }
+        V3 c = e.kind == EN_TOWER ? e.p + V3(0, 4.6f, 0) : e.p; float d = c.z - me.z; if (d > 30 && d < 900 && d < best) { best = d; tgt = c; has = true; }
     }
     if (G.phase == PH_TRENCH && !G.portHit) { V3 pp = portPos(); float d = pp.z - me.z; if (d > 0 && d < 500) { tgt = pp; has = true; } }
     if (G.phase == PH_TUNNEL) for (auto& e : G.en) if (!e.dead && e.kind == EN_REACTOR) { float d = e.p.z - me.z; if (d > 40 && d < 700) { tgt = e.p; has = true; } }
@@ -1435,7 +1435,7 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
             box3(cv, cam, V3(e.p.x - 5, GROUND_Y, e.p.z - 5), V3(e.p.x + 5, e.p.y, e.p.z + 5), tc, 1.2f);
             if (!e.capDead) {
                 // the top: a long flat block sitting across the tower, wider than the tower itself (like the arcade's)
-                Col cc = e.flash > 0 ? C_WHITE : COLS[CI_TOWERTOP]; float y0 = e.p.y + 0.6f, y1 = e.p.y + 4.6f;
+                Col cc = e.flash > 0 ? C_WHITE : COLS[CI_TOWERTOP]; float y0 = e.p.y + 0.6f, y1 = e.p.y + 8.6f;
                 box3(cv, cam, V3(e.p.x - 8, y0, e.p.z - 3), V3(e.p.x + 8, y1, e.p.z + 3), cc, 1.4f);
                 line3(cv, cam, V3(e.p.x - 8, (y0 + y1) * 0.5f, e.p.z - 3), V3(e.p.x + 8, (y0 + y1) * 0.5f, e.p.z - 3), 1.0f, withA(cc, 0.6f));   // a seam along the face
             }
