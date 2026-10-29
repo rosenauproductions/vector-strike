@@ -260,7 +260,7 @@ static int nearestPal(Col c) { int b = 0; long bd = 1L << 40; for (int i = 0; i 
 #define C_CIT (COLS[CI_STATION])
 
 enum { ST_TITLE, ST_HELP, ST_OPTIONS, ST_LOBBY, ST_GAME, ST_ICON, ST_LOGO, ST_COLORS };
-enum { PH_SPACE, PH_SURFACE, PH_TRENCH, PH_ESCAPE, PH_TALLY, PH_ASTEROIDS, PH_LIGHTSPEED, PH_TUNNEL, PH_TURRET, PH_FOX, PH_TANK, PH_HOTH };
+enum { PH_SPACE, PH_SURFACE, PH_TRENCH, PH_ESCAPE, PH_TALLY, PH_ASTEROIDS, PH_LIGHTSPEED, PH_TUNNEL, PH_TURRET, PH_FOX, PH_TANK, PH_HOTH, PH_TURNIN };   // TURNIN: railed dive into the canyon
 enum { EN_FIGHTER, EN_TOWER, EN_TURRET, EN_PURSUER, EN_REACTOR };   // pursuer: chases you down the trench / tunnel
 static const char* RESNAMES[5] = { "AUTO", "1280 X 720", "1920 X 1080", "2560 X 1440", "3840 X 2160" };
 static const int RESH[5] = { 0, 720, 1080, 1440, 2160 };
@@ -313,7 +313,8 @@ struct Game {
     std::vector<Dev> devs; Player pl[4];
     // run
     int wave = 1, phase = PH_SPACE; float phaseT = 0, z = 0, speed = 50, zStart = 0, time = 0;
-    int killsNeeded = 0, killsDone = 0; float spawnT = 0; float surfLen = 0, trenchZ0 = 0, trenchLen = 0; int towersTotal = 0, towersHit = 0; float falRoll = 0; bool portHit = false; int portBy = -1; int runs = 0;
+    int killsNeeded = 0, killsDone = 0; float spawnT = 0; float surfLen = 0, trenchZ0 = 0, trenchLen = 0; int towersTotal = 0, towersHit = 0; float falRoll = 0;
+    float crossZ = 1e9f, crossD = 1, turnT = 0, turnDur = 2; V3 turnP0, turnP1, turnP2; V2 turnO[4]; /* the canyon across the tower field, and the turn into it */ bool portHit = false; int portBy = -1; int runs = 0;
     float citDist = 3000, citSpin = 0; bool citBoom = false; float baseSpeed = 0, railMul = 1; V3 stC; float stR = 1400; bool approach = false;
     std::string banner, banner2; float bannerT = 0;
     std::vector<Enemy> en; std::vector<Ball> balls; std::vector<Bolt> bolts; std::vector<Frag> frags; std::vector<Flash> flashes; std::vector<Catwalk> cat; std::vector<Star> stars;
@@ -395,7 +396,7 @@ static bool isSpace() { return G.phase == PH_SPACE || (G.phase == PH_ESCAPE && G
 static bool freeGround() { return G.phase == PH_TANK || G.phase == PH_HOTH; }
 static V3 ppos(const Player& p) { return isSpace() || freeGround() ? p.pos : V3(p.x, p.y, G.z + p.zoff); }
 static float railChaseBack(const Player& p);   // how far back the chase camera must sit to frame the trench / tunnel pursuers (0 = none)
-static bool viewThird(const Player& p) { if (G.phase == PH_TURRET) return false; if (G.phase == PH_FOX || G.phase == PH_HOTH) return !p.third; if (G.phase == PH_TANK) return p.third; return p.third || (p.tailHold > 0 && (G.phase == PH_SPACE || G.phase == PH_ASTEROIDS)) || railChaseBack(p) > 0; }
+static bool viewThird(const Player& p) { if (G.phase == PH_TURRET || G.phase == PH_TURNIN) return false; if (G.phase == PH_FOX || G.phase == PH_HOTH) return !p.third; if (G.phase == PH_TANK) return p.third; return p.third || (p.tailHold > 0 && (G.phase == PH_SPACE || G.phase == PH_ASTEROIDS)) || railChaseBack(p) > 0; }
 static V3 lerp3(V3 a, V3 b, float t) { return a + (b - a) * t; }
 static void shipFrame(const Player& o, V3& pos, V3& fw, V3& rt, V3& up);
 static void ownFrame(const Player& p, V3& pos, V3& fw, V3& rt, V3& up);
@@ -442,7 +443,7 @@ static void beginPhase(int ph) {
         G.z = 0; placeFormation(10); for (auto& p : G.pl) if (p.joined) p.y += ph == PH_SURFACE ? 30 : -20;
     }
     G.zStart = G.z;
-    G.en.clear(); G.balls.clear(); G.cat.clear();
+    if (ph != PH_TURNIN) G.en.clear(); G.balls.clear(); G.cat.clear();   // the turn-in keeps the towers on screen
     bool anyAlive = aliveCount() > 0;
     if (ph == PH_SPACE || ph == PH_SURFACE || ph == PH_TRENCH)
         for (auto& p : G.pl) if (p.joined && p.down && anyAlive) { p.down = false; p.shields = 3; p.inv = 2; printf("game: P%d back in with 3 shields\n", p.idx + 1); }
@@ -475,14 +476,19 @@ static void beginPhase(int ph) {
         break;
     }
     case PH_SURFACE: {
-        G.speed = G.baseSpeed = 150 + 8.f * G.wave; G.surfLen = 2400 + 150.f * G.wave;
+        G.speed = G.baseSpeed = 150 + 8.f * G.wave; G.surfLen = 2400 + 150.f * G.wave; if (getenv("VS_SURFLEN")) G.surfLen = (float)atof(getenv("VS_SURFLEN"));   // test
         float zz = G.z + 380;
         while (zz < G.z + G.surfLen) {
             int k = 1 + (R.f() < 0.25f + 0.04f * G.wave ? 1 : 0);
             for (int i = 0; i < k; i++) { Enemy e; e.kind = EN_TOWER; e.h = R.range(18, 58); e.p = V3(R.range(-135, 135), GROUND_Y + e.h, zz + R.range(-15, 15)); e.cd = R.range(0.5f, 2.0f); G.en.push_back(e); }
             zz += R.range(70, 120) / std::min(1.6f, 0.9f + 0.08f * G.wave) / foeMul();
         }
-        G.towersHit = 0; G.towersTotal = 0; for (auto& e : G.en) if (e.kind == EN_TOWER) G.towersTotal++;
+        G.crossZ = G.z + G.surfLen + 250; G.crossD = R.f() < 0.5f ? 1.f : -1.f;   // the trench cuts straight across the field
+        for (float z2 = G.crossZ + TR_W + 70; z2 < G.crossZ + 1300; z2 += R.range(60, 110)) {   // ... and the towers carry on beyond it (scenery: they don't fire, don't count)
+            int k = 1 + (R.f() < 0.4f ? 1 : 0);
+            for (int i = 0; i < k; i++) { Enemy e; e.kind = EN_TOWER; e.side = 9; e.h = R.range(18, 58); e.p = V3(R.range(-420, 420), GROUND_Y + e.h, z2 + R.range(-15, 15)); G.en.push_back(e); }
+        }
+        G.towersHit = 0; G.towersTotal = 0; for (auto& e : G.en) if (e.kind == EN_TOWER && e.side != 9) G.towersTotal++;
         setBanner("TOWER ATTACK", "SHOOT EVERY TOWER TOP FOR A BONUS - FLY HIGH OVER THEM");
         break;
     }
@@ -500,6 +506,16 @@ static void beginPhase(int ph) {
             if (G.wave >= 5 && R.f() < 0.4f) { int l2 = (lvl + 1 + R.i(2)) % 3; float y2 = TR_FLOOR + 4 + l2 * 12.5f; G.cat.push_back({ zc + 6, y2, y2 + 7 }); }
         }
         setBanner(G.runs ? "GO AROUND - TRENCH AGAIN" : "TRENCH RUN", "HIT THE EXHAUST PORT AT THE END");
+        break;
+    }
+    case PH_TURNIN: {   // the autopilot takes over: dive, bank and turn 90 degrees down into the canyon
+        float mx = 0, my = 0; int n = 0; for (auto& p : G.pl) if (p.joined) { mx += p.x; my += p.y; n++; } if (n) { mx /= n; my /= n; }
+        float Rr = std::max(140.f, G.crossZ - G.z), d = G.crossD;
+        G.turnP0 = V3(mx, my, G.z); G.turnP1 = V3(mx, my * 0.45f + (GROUND_Y - 14) * 0.55f, G.crossZ); G.turnP2 = V3(mx + d * Rr, GROUND_Y - 14, G.crossZ);
+        G.turnDur = clampf(Rr * 1.6f / std::max(80.f, G.speed), 1.6f, 3.0f); G.turnT = 0; G.speed = 0;
+        for (auto& p : G.pl) if (p.joined) { G.turnO[p.idx] = V2(clampf(p.x - mx, -14, 14), clampf(p.y - my, -8, 8)); p.zoom = 0; p.aim = V2(); }
+        setBanner("INTO THE TRENCH", "", 1.6f); AU.play(SND_TIEFLY, 0.9f, d * 0.4f, 0.8f, 300);
+        printf("game: turning %s into the trench\n", d > 0 ? "right" : "left");
         break;
     }
     case PH_ESCAPE: { AU.play(SND_PORT, 1.0f); shakeAll(28); setBanner("DIRECT HIT", "PULL UP"); break; }
@@ -882,7 +898,7 @@ static void updateTowersTurrets(float dt) {
         e.flash = std::max(0.f, e.flash - dt); e.cd -= dt;
         float relz = e.p.z - G.z;
         if (relz < -80) { e.dead = true; continue; }
-        bool canFire = e.kind == EN_TURRET || !e.capDead;
+        bool canFire = e.kind == EN_TURRET || (!e.capDead && e.side != 9);
         float lo = e.kind == EN_TOWER ? 180 : 140, hi = e.kind == EN_TOWER ? 820 : 600;
         if (e.kind == EN_TOWER && canFire && e.cd <= 0) {   // tower fight: only a few fireballs in the air at once (the arcade's pace)
             int air = 0; for (auto& b : G.balls) if (!b.dead) air++;
@@ -1081,6 +1097,7 @@ static void botThink(Player& p, float dt, V2& desired, bool& fire) {
 static void updatePlayer(Player& p, float dt) {
     p.inv = std::max(0.f, p.inv - dt); p.hitT = std::max(0.f, p.hitT - dt); p.msgT = std::max(0.f, p.msgT - dt); p.shake *= std::pow(0.02f, dt); if (p.shake < 0.1f) p.shake = 0; p.fireCd -= dt;
     if (p.down) { p.downT += dt; return; }
+    if (G.phase == PH_TURNIN) { p.aim = p.aim * std::pow(0.05f, dt); p.steer = p.aim; return; }   // on rails into the canyon
     bool fire = false;
     if (G.phase == PH_ESCAPE || G.phase == PH_TALLY) { p.aim = p.aim * std::pow(0.1f, dt); }
     else if (p.bot) { V2 want; botThink(p, dt, want, fire); formationAdjust(p, want); hullAvoid(p, want); p.aim = p.aim + (want - p.aim) * std::min(1.f, dt * 5); }
@@ -1160,13 +1177,21 @@ static void stepGame(float dt) {
         break;
     case PH_SURFACE:
         updateTowersTurrets(dt);
-        if (G.z > G.zStart + G.surfLen + 250) {
+        if (G.z >= G.crossZ - 230) {   // over the last towers: the autopilot takes you down into the canyon
             printf("game: towers %d / %d\n", G.towersHit, G.towersTotal);
             int boost = G.towersHit >= G.towersTotal ? 2 : 1;   // made it over the towers: a shield back for the trench (two for a clean sweep)
             for (auto& q : G.pl) if (q.joined && !q.down) {
                 q.shields = std::min(MAXSH, q.shields + boost);
                 pmsg(q, "TOWER TOPS " + std::to_string(G.towersHit) + " / " + std::to_string(G.towersTotal) + "   SHIELDS +" + std::to_string(boost));
             }
+            beginPhase(PH_TURNIN);
+        }
+        break;
+    case PH_TURNIN:
+        G.turnT += dt / G.turnDur;
+        if (G.turnT >= 1) {   // level in the trench, heading down it: hand over to the trench run at the same spot
+            float d = G.crossD; G.z = d * G.turnP2.x;
+            for (auto& p : G.pl) if (p.joined) { p.x = G.turnO[p.idx].x; p.y = -14 + G.turnO[p.idx].y; p.bank = 0; p.pitchExtra = 0; }
             beginPhase(PH_TRENCH);
         }
         break;
@@ -1274,19 +1299,32 @@ static void drawCitadel(Canvas& cv, const Cam& cam, V3 at, float size, float alp
     drawModel(cv, far, *MS, at, fw, 0, size, withA(C_CIT, alpha), 1.2f, 0.7f);
     SPHERE_CULL = false;
 }
-static void drawSurface(Canvas& cv, const Cam& cam, float zc) {
-    Col gc = withA(C_GROUND, 0.75f);
-    for (int i = -8; i <= 8; i++) line3(cv, cam, V3(i * 40.f, GROUND_Y, zc - 30), V3(i * 40.f, GROUND_Y, zc + 1500), 1.0f, gc, 0.4f);
+static void drawSurface(Canvas& cv, const Cam& cam, float zc, float gapZ = 1e9f, int half = 8) {   // gapZ: a canyon cut across the grid there
+    Col gc = withA(C_GROUND, 0.75f); float g0 = gapZ - TR_W, g1 = gapZ + TR_W, za = zc - 30, zb = zc + 1500, xw = half * 40.f;
+    for (int i = -half; i <= half; i++) {
+        if (g1 < za || g0 > zb) line3(cv, cam, V3(i * 40.f, GROUND_Y, za), V3(i * 40.f, GROUND_Y, zb), 1.0f, gc, 0.4f);
+        else { if (g0 > za) line3(cv, cam, V3(i * 40.f, GROUND_Y, za), V3(i * 40.f, GROUND_Y, g0), 1.0f, gc, 0.4f); if (g1 < zb) line3(cv, cam, V3(i * 40.f, GROUND_Y, g1), V3(i * 40.f, GROUND_Y, zb), 1.0f, gc, 0.4f); }
+    }
     float z0 = std::floor(zc / 80) * 80;
-    for (int k = 0; k < 20; k++) { float zz = z0 + k * 80; line3(cv, cam, V3(-320, GROUND_Y, zz), V3(320, GROUND_Y, zz), 1.0f, gc, 0.4f); }
+    for (int k = 0; k < 20; k++) { float zz = z0 + k * 80; if (zz > g0 - 2 && zz < g1 + 2) continue; line3(cv, cam, V3(-xw, GROUND_Y, zz), V3(xw, GROUND_Y, zz), 1.0f, gc, 0.4f); }
     // greeble plates
     int b0 = (int)std::floor(zc / 160);
     for (int k = 0; k < 10; k++) {
         uint32_t h = hash2(b0 + k, 7); if ((h & 3) == 0) continue;
         float zz = (b0 + k) * 160.f + (h >> 8 & 63); float xx = ((int)((h >> 14) & 511) - 256) * 1.1f;
         float w = 10 + (h >> 4 & 15), d = 10 + (h >> 20 & 15), hh = 2 + (h >> 24 & 7);
+        if (zz + d > gapZ - TR_W && zz - d < gapZ + TR_W) continue;
         box3(cv, cam, V3(xx - w, GROUND_Y, zz - d), V3(xx + w, GROUND_Y + hh, zz + d), withA(C_GROUND, 0.6f), 1.0f);
     }
+}
+static void drawTrench(Canvas& cv, const Cam& cam, float zc, float z0, float zEnd, bool port);
+// The canyon across the tower field, drawn with the ordinary trench code through a rotated copy of the camera.
+// Surface coords S -> trench coords T: T.x = d (crossZ - S.z), T.y = S.y - GROUND_Y, T.z = d S.x (d = which way you turn in).
+static V3 crossToT(V3 s) { float d = G.crossD; return V3(d * (G.crossZ - s.z), s.y - GROUND_Y, d * s.x); }
+static V3 crossDirToT(V3 v) { float d = G.crossD; return V3(-d * v.z, v.y, d * v.x); }
+static void drawCrossing(Canvas& cv, const Cam& cs) {
+    Cam ct = cs; ct.p = crossToT(cs.p); ct.r = crossDirToT(cs.r); ct.u = crossDirToT(cs.u); ct.f = crossDirToT(cs.f);
+    drawTrench(cv, ct, ct.p.z, -1e9f, 1e9f, false); drawTrench(cv, ct, ct.p.z - 1500, -1e9f, ct.p.z - 40, false);   // both ways along it
 }
 static void drawTrench(Canvas& cv, const Cam& cam, float zc, float z0, float zEnd, bool port) {
     float zf = std::max(z0, zc - 40), zt = std::min(zEnd + 160, zc + 1500); if (zt <= zf) return;
@@ -1402,10 +1440,9 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
         if (G.phase == PH_TURRET) drawFalconFromTurret(cv, cam);
         if (G.phase == PH_SPACE || G.phase == PH_ASTEROIDS) { Cam far = cam; far.fogNear = 6000; far.fogFar = 12000; for (auto& c : G.caps) drawModelRU(cv, far, PK_DESTROYER, c.p, c.f, c.r, c.u, c.L, COLS[CI_DESTROYER], 1.2f, 0.6f); }
         if (G.ally.on && G.ally.shown && G.phase == PH_SPACE && G.level != 2) { V3 f = norm3(G.ally.v), r = norm3(cross3(V3(0, 1, 0), f)), u = cross3(f, r); drawModelRU(cv, cam, PK_FALCON, G.ally.p, f, r, u, 15, COLS[CI_FREIGHTER], 1.3f, 1); }
-    } else if (G.phase == PH_SURFACE) {
-        drawSurface(cv, cam, G.z);
-        float zt = G.zStart + G.surfLen + 250;   // trench entrance ahead
-        if (zt < G.z + 1500) drawTrench(cv, cam, G.z, zt, zt + 3000, false);
+    } else if (G.phase == PH_SURFACE || G.phase == PH_TURNIN) {
+        drawSurface(cv, cam, G.z, G.crossZ, 40);
+        if (G.crossZ < G.z + 2500) drawCrossing(cv, cam);   // the trench across your path
     } else if (G.phase == PH_TANK) {
         drawTankWorld(cv, cam, me);
     } else if (G.phase == PH_HOTH) {
@@ -1416,7 +1453,6 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
         drawTunnel(cv, cam, G.z);
     } else if (G.phase == PH_TRENCH || G.phase == PH_ESCAPE) {
         drawTrench(cv, cam, G.z, G.trenchZ0 - 400, G.trenchZ0 + G.trenchLen, !G.portHit);
-        if (G.trenchZ0 > G.z - 400) drawSurface(cv, cam, G.z);
         if (G.ally.shown && G.phase == PH_TRENCH && !PK_FALCON.v.empty()) {   // the freighter coming in head-on over the trench
             V3 f = norm3(G.ally.v), r = norm3(cross3(V3(0, 1, 0), f)), u = cross3(f, r); drawModelRU(cv, cam, PK_FALCON, G.ally.p, f, r, u, 15, COLS[CI_FREIGHTER], 1.3f, 1);
         }
@@ -1443,7 +1479,7 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
     }
     for (auto& c : G.cat) box3(cv, cam, V3(-TR_W, c.y0, c.z - 1.5f), V3(TR_W, c.y1, c.z + 1.5f), C_CAT, 1.4f, true);
     FULL_DETAIL = true;
-    for (auto& o : G.pl) if (o.joined && !o.down && G.phase != PH_TURRET && !freeGround()) {
+    for (auto& o : G.pl) if (o.joined && !o.down && G.phase != PH_TURRET && !freeGround() && (G.phase != PH_TURNIN || &o == me)) {
         V3 sp, sf, sr, su; bool own = &o == me;
         if (own && !modelCockpit(o) && !viewThird(*me)) continue;   // built-in ship: the drawn cannons stand in for it
         if (own) ownFrame(o, sp, sf, sr, su); else shipFrame(o, sp, sf, sr, su);
@@ -1672,7 +1708,8 @@ static void drawHud(Canvas& cv, Player& p) {
             if (G.escStage == 0) { obj = "PROTECT THE BOMBERS"; int k = 0; for (auto& e : G.esc) { if (e.alive && !e.gone) { snprintf(buf, sizeof buf, "BOMBER %d  %s", k + 1, std::string((size_t)std::max(0.f, e.hp), '=').c_str()); FONT.draw(cv, buf, V2(cx, vp.y + (132 + 18 * k) * u), 14 * u, e.flash > 0 ? C_WHITE : Col(230, 240, 255, 220), 1); } k++; } }
             else if (G.escStage == 1) obj = "COVER THE BOMBERS  " + std::to_string(std::max(0, G.killsNeeded - G.killsDone)); else obj = "BOMBER GROUP - COME IN";
         } else if (G.approach) { obj = "ATTACK THE STATION " + std::to_string((int)std::max(0.f, len3(G.stC - ppos(p)) - G.stR - 700) / 10 * 10); oc = withA(C_PORT, 0.9f); } else obj = "INTERCEPTORS " + std::to_string(std::max(0, G.killsNeeded - G.killsDone)); break;
-    case PH_SURFACE: { int left = (int)std::max(0.f, G.zStart + G.surfLen + 250 - G.z); obj = "TOWER TOPS " + std::to_string(G.towersHit) + " / " + std::to_string(G.towersTotal) + "    TRENCH IN " + std::to_string(left / 10 * 10); break; }
+    case PH_SURFACE: { int left = (int)std::max(0.f, G.crossZ - G.z); obj = "TOWER TOPS " + std::to_string(G.towersHit) + " / " + std::to_string(G.towersTotal) + "    TRENCH IN " + std::to_string(left / 10 * 10); break; }
+    case PH_TURNIN: obj = "INTO THE TRENCH"; break;
     case PH_FOX: {
         snprintf(buf, sizeof buf, "HITS %03d", p.foxHits); obj = buf;
         if (G.foxBoss && G.foxClearT < 0) {   // carrier health
@@ -1760,6 +1797,17 @@ static void setupCamBase(Player& p) {
     if (p.zoom < 0) p.zoom = want; else p.zoom += clampf(want - p.zoom, -0.022f, 0.022f);   // ~0.75 s cockpit <-> chase
     if (getenv("VS_ZOOMTEST")) p.zoom = (float)atof(getenv("VS_ZOOMTEST"));   // test: freeze the cockpit-to-chase blend
     if (G.phase == PH_TANK) { tankCam(p, p.vp, vfov); return; }
+    if (G.phase == PH_TURNIN) {   // riding the curve: Bezier through the corner, banked into the turn, your formation offset kept
+        float t = clampf(G.turnT, 0, 1), it = 1 - t;
+        V3 pos = G.turnP0 * (it * it) + G.turnP1 * (2 * it * t) + G.turnP2 * (t * t);
+        V3 fw = norm3((G.turnP1 - G.turnP0) * (2 * it) + (G.turnP2 - G.turnP1) * (2 * t));
+        V3 rt = norm3(cross3(V3(0, 1, 0), fw)), up = cross3(fw, rt);
+        pos += rt * G.turnO[p.idx].x + up * G.turnO[p.idx].y + fw * p.zoff;
+        V3 eye = modelCockpit(p) ? shipOf(p).eye * (S_PLAYER * shipOf(p).k) : V3();
+        float roll = G.crossD * 0.75f * std::sin(PI * t);
+        Cam c0; c0.setBasis(pos + rt * eye.x + up * eye.y + fw * eye.z, fw, V3(0, 1, 0), roll, p.vp, vfov);
+        p.cam = c0; p.ck = c0; return;
+    }
     if (G.phase == PH_HOTH) { hothCam(p, p.vp, vfov); return; }
     if (G.phase == PH_TURRET) {   // in the gun turret: the camera is the turret
         V3 f, up; turretBasis(p, f, up); p.cam.setBasis(turretEye(p), f, up, 0, p.vp, vfov); p.cam.fogNear = 1700; p.cam.fogFar = 3200; p.ck = p.cam; return;

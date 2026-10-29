@@ -1,9 +1,22 @@
-# Vector Strike — handover (29 Oct 2026, v20)
+# Vector Strike — handover (29 Oct 2026, v21)
 
 **Code lives on GitHub: `rosenauproductions/vector-strike` (private, branch main).** Cloud sessions: add_repo it and read CLAUDE.md + HANDOVER.md in the repo (HANDOVER.md there is the canonical copy of this doc). Pushed 24 Oct ~21:05 with full history.
 
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
+
+## v21 (29 Oct, Cowork session) — the canyon crosses the tower field; railed turn-in (md5 f40bfc416e6585904aef7e1ab3fbf2f4)
+- **The trench now cuts straight across your path at the end of the tower field**, at `G.crossZ` = start + surfLen + 250. The tower layout carries on beyond it as scenery: towers flagged `side = 9`, spread ±420, up to 1300 past the trench. They don't fire and don't count toward TOWER TOPS. The HUD says `TRENCH IN n`. The surface grid is wider (±1600) with a gap where the canyon is.
+- **How the crossing is drawn:** the ordinary `drawTrench` code is used, through a rotated copy of the camera (`drawCrossing`, `crossToT`): surface coords S → trench coords T is T.x = d·(crossZ − S.z), T.y = S.y − GROUND_Y, T.z = d·S.x, where d = `crossD` = ±1, random left or right. It's drawn twice, once for each direction along the crossing.
+- **PH_TURNIN (new phase 12):** 230 units before the canyon the autopilot takes over, with no steering or firing.
+  - Each player rides a quadratic Bezier, from their position through the corner above the canyon to mid-depth in it (T.y −14). Their formation offset is kept (±14 sideways, ±8 up/down, `zoff` along the path).
+  - The ship banks up to 0.75 rad into the turn, in the cockpit view. Only your own ship is drawn.
+  - Takes 1.6–3 s (path ≈ 1.6 R at the surface speed). The banner reads INTO THE TRENCH; log line `game: turning left/right into the trench`.
+  - At the end, `G.z` = d·P2.x, so the trench run starts exactly where the curve ends, heading down it.
+  - The towers stay on screen through the turn: `beginPhase` doesn't clear `G.en` for PH_TURNIN.
+- Removed the old straight-in trench entrance drawing, and the stray surface grid at trench-floor height at the start of the trench.
+- Test switch `VS_SURFLEN=n` (short tower field).
+- **Soak** (1 / 2 / 4 bots, 400 s): every run turned into the trench. 2–3 trench hits, no pulling up out of the trench; port hit with 2 and 4 bots.
 
 ## v20 (29 Oct, Cowork session) — colour modes, colour per item, arcade-style shield arch (md5 5224779f330518421c554de85f8133fe)
 **29 Oct ~07:55: installed on ARCADE-21 as the only Vector Strike** (md5 verified on the share; replaces v14, so v15-v19 arrive with it; no backup; the 23 model files on the box already match the repo). Not yet run on the box. `dist-beta/vectorstrike_beta.x86_64` = this build. No model changes; `web/dist` still v18.
