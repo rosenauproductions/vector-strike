@@ -496,6 +496,10 @@ static void beginPhase(int ph) {
         G.speed = G.baseSpeed = 165 + 11.f * G.wave; G.trenchZ0 = G.z; G.trenchLen = 5600 + 560.f * std::min(G.wave, 8); G.portHit = false; G.portBy = -1;   // long run: ~35 s at wave 1
         for (auto& p : G.pl) if (p.joined) { p.x = clampf(p.x, -16, 16); p.zoff = -12.f * p.idx; p.expT = 0; p.gunCd = 0; }
         G.chaseOn = false; G.chaseDone = false; G.ally.shown = false;
+        // towers along both rims of the canyon (side = 8): they're what opens up on you if you climb out of the trench
+        for (int sd = -1; sd <= 1; sd += 2) for (float zt = G.trenchZ0 + R.range(40, 120); zt < G.trenchZ0 + G.trenchLen - 120; zt += R.range(80, 150) / std::min(1.5f, 0.9f + 0.06f * G.wave)) {
+            Enemy e; e.kind = EN_TOWER; e.side = 8; e.h = R.range(14, 40); e.p = V3(sd * (TR_W + R.range(28, 140)), e.h, zt); e.cd = R.range(0.5f, 2.0f); G.en.push_back(e);
+        }
         int nt = foeN(12 + 4 * G.wave);
         for (int i = 0; i < nt; i++) { Enemy e; e.kind = EN_TURRET; e.side = R.f() < 0.5f ? -1 : 1; e.p = V3(e.side * (TR_W - 1.5f), R.range(-36, -8), G.trenchZ0 + R.range(350, G.trenchLen - 250)); e.cd = R.range(0.5f, 2.5f); G.en.push_back(e); }
         int nc = G.wave >= 2 ? std::min(32, 4 + (G.wave - 2) * 4) : 0;
@@ -657,7 +661,7 @@ static void playerFire(Player& p) {
         else if (e.kind == EN_FIGHTER) { e.dead = true; G.killsDone++; p.kills++; p.score += 1000; explode3(e.p, 5, C_ENEMY, V3(0, 0, G.speed)); AU.play(SND_BOOM_S, 0.75f); if (missile) missileSplash(p, e.p); }
         else if (e.kind == EN_TOWER) {
             e.capDead = true; p.kills++; p.score += 250; explode3(e.p + V3(0, 4.6f, 0), 5, C_TOWER, V3(0, 0, 0)); AU.play(SND_TOWER, 0.7f);
-            if (++G.towersHit == G.towersTotal && G.towersTotal > 0) {   // the arcade's big one: every tower top on the run
+            if (e.side == 0 && ++G.towersHit == G.towersTotal && G.towersTotal > 0) {   // the arcade's big one: every tower top on the run
                 for (auto& q : G.pl) if (q.joined) q.score += 10000;
                 setBanner("ALL TOWER TOPS DESTROYED", "SQUAD BONUS +10000", 3.0f); AU.play(SND_WAVE, 0.9f);
                 printf("game: all %d tower tops destroyed\n", G.towersTotal);
@@ -898,7 +902,7 @@ static void updateTowersTurrets(float dt) {
         e.flash = std::max(0.f, e.flash - dt); e.cd -= dt;
         float relz = e.p.z - G.z;
         if (relz < -80) { e.dead = true; continue; }
-        bool canFire = e.kind == EN_TURRET || (!e.capDead && e.side != 9);
+        bool canFire = e.kind == EN_TURRET || (!e.capDead && e.side != 9 && e.side != 8);
         float lo = e.kind == EN_TOWER ? 180 : 140, hi = e.kind == EN_TOWER ? 820 : 600;
         if (e.kind == EN_TOWER && canFire && e.cd <= 0) {   // tower fight: only a few fireballs in the air at once (the arcade's pace)
             int air = 0; for (auto& b : G.balls) if (!b.dead) air++;
@@ -921,9 +925,13 @@ static void updateSurfaceGuns(float dt) {
         p.expT += dt; p.gunCd -= dt;
         if (p.gunCd <= 0) {
             p.gunCd = std::max(0.18f, 0.7f - 0.12f * p.expT - 0.02f * G.wave) * R.range(0.7f, 1.2f);
-            float sx = R.f() < 0.5f ? -1.f : 1.f;
-            V3 muzzle(sx * (TR_W + R.range(15, 110)), R.range(2, 7), G.z + p.zoff + R.range(160, 420));
-            G.flashes.push_back({ muzzle, 0.18f, 0.18f, 5, C_ENEMY, false });
+            // the rim towers ahead of you (with their tops still on) do the shooting; a shot top can't
+            Enemy* tw = nullptr; float pz = G.z + p.zoff; int seen = 0;
+            for (auto& e : G.en) if (!e.dead && e.kind == EN_TOWER && e.side == 8 && !e.capDead) { float rz = e.p.z - pz; if (rz > 120 && rz < 520 && R.i(++seen) == 0) tw = &e; }
+            V3 muzzle; float sx = R.f() < 0.5f ? -1.f : 1.f;
+            if (tw) { muzzle = tw->p + V3(0, 4.6f, 0); tw->flash = 0.12f; }
+            else muzzle = V3(sx * (TR_W + R.range(15, 110)), R.range(2, 7), pz + R.range(160, 420));   // (none left near: the old surface guns)
+            G.flashes.push_back({ muzzle, 0.18f, 0.18f, 5, COLS[CI_TOWERTOP], false });
             fireBall(muzzle, p.idx, 1.5f);
         }
     }
@@ -1052,7 +1060,7 @@ static void botThink(Player& p, float dt, V2& desired, bool& fire) {
     // aim at the most urgent target, dodge catwalks
     for (auto& b : G.balls) if (!b.dead) { float d = b.p.z - me.z; if (d > 20 && d < 500 && d < best) { best = d; tgt = b.p; has = true; } }
     if (!has) for (auto& e : G.en) {
-        if (e.dead) continue; if (e.kind == EN_FIGHTER && e.state == 2) continue; if (e.kind == EN_TOWER && e.capDead) continue;
+        if (e.dead) continue; if (e.kind == EN_FIGHTER && e.state == 2) continue; if (e.kind == EN_TOWER && (e.capDead || e.side == 8)) continue;
         V3 c = e.kind == EN_TOWER ? e.p + V3(0, 4.6f, 0) : e.p; float d = c.z - me.z; if (d > 30 && d < 900 && d < best) { best = d; tgt = c; has = true; }
     }
     if (G.phase == PH_TRENCH && !G.portHit) { V3 pp = portPos(); float d = pp.z - me.z; if (d > 0 && d < 500) { tgt = pp; has = true; } }
@@ -1480,10 +1488,16 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
         else if (e.kind == EN_REACTOR) drawReactor(cv, cam, e);
         else if (e.kind == EN_TOWER) {
             Col tc = e.capDead ? withA(C_TOWER, 0.45f) : C_TOWER;
-            box3(cv, cam, V3(e.p.x - 5, GROUND_Y, e.p.z - 5), V3(e.p.x + 5, e.p.y, e.p.z + 5), tc, 1.2f);
+            float base = e.side == 8 ? 0.f : GROUND_Y, y0 = e.p.y + 0.6f, y1 = e.p.y + 8.6f;
+            if (e.side == 8 && cam.p.y < 0) {   // rim tower seen from down in the trench: the wall hides everything below your sight line over the edge
+                float sx = e.p.x > 0 ? 1.f : -1.f, ex = sx * TR_W;
+                if (sx * cam.p.x < TR_W - 0.5f) { float t = (e.p.x - cam.p.x) / (ex - cam.p.x); base = std::max(base, cam.p.y * (1 - t)); }
+                if (base >= y1) continue;
+            }
+            if (base < e.p.y) box3(cv, cam, V3(e.p.x - 5, base, e.p.z - 5), V3(e.p.x + 5, e.p.y, e.p.z + 5), tc, 1.2f);
             if (!e.capDead) {
                 // the top: a block the same width as the tower, sitting on it (like the arcade's)
-                Col cc = e.flash > 0 ? C_WHITE : COLS[CI_TOWERTOP]; float y0 = e.p.y + 0.6f, y1 = e.p.y + 8.6f;
+                Col cc = e.flash > 0 ? C_WHITE : COLS[CI_TOWERTOP]; y0 = std::max(y0, base);
                 box3(cv, cam, V3(e.p.x - 5, y0, e.p.z - 5), V3(e.p.x + 5, y1, e.p.z + 5), cc, 1.4f);
                 line3(cv, cam, V3(e.p.x - 5, (y0 + y1) * 0.5f, e.p.z - 5), V3(e.p.x + 5, (y0 + y1) * 0.5f, e.p.z - 5), 1.0f, withA(cc, 0.6f));   // a seam along the face
             }
@@ -1753,7 +1767,7 @@ static void drawHud(Canvas& cv, Player& p) {
     default: break;
     }
     if (!obj.empty()) FONT.draw(cv, obj.c_str(), V2(cx, vp.y + 104 * u), 20 * u, oc, 1);   // under the shield arch
-    if (G.phase == PH_TRENCH && !p.down && p.y > -1.0f) FONT.draw(cv, "TOO HIGH - SURFACE GUNS", V2(cx, cy + 120 * u), 24 * u, withA(C_ENEMY, 0.55f + 0.45f * std::sin(G.time * 18)), 1);
+    if (G.phase == PH_TRENCH && !p.down && p.y > -1.0f) FONT.draw(cv, "TOO HIGH - THE TOWERS ARE FIRING", V2(cx, cy + 120 * u), 24 * u, withA(C_ENEMY, 0.55f + 0.45f * std::sin(G.time * 18)), 1);
     if (G.phase == PH_TRENCH) for (auto& c : G.cat) { float d = c.z - G.z; if (d > 0 && d < 330) { FONT.draw(cv, "CATWALK", V2(cx, vp.y + 52 * u), 18 * u, withA(C_CAT, 0.5f + 0.5f * std::sin(G.time * 16)), 1); break; } }
     if (G.phase == PH_TALLY) {
         FONT.draw(cv, (std::string(LEVELNAMES[G.level]) + " CLEAR").c_str(), V2(cx, cy - 90 * u), 42 * u, C_PORT, 1, 0, 1.1f);

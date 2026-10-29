@@ -21,6 +21,12 @@ Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-d
   - cross ribs thinning out in 4 steps to 470 from the lip;
   - a few low plates near the edge, fading by distance.
   The same applies in the trench run, where only the near part shows.
+- **Rim towers** (Chris: the towers are what hit you if you pull too far out of the trench; md5 bee9d0fa2ccc3dc2b44ee80a864ea443):
+  - **Placement:** both rims of the trench now carry towers (`EN_TOWER` with `side = 8`), every 80–150 along the run at 28–140 out from the lip, standing on lip level (y 0).
+  - **Firing:** they don't fire on their own. When you climb above the lip (`updateSurfaceGuns`, after the 3 s dive-in grace), a random live rim tower 120–520 ahead fires from its top and flashes. If none are left near you, the old invisible surface guns take over.
+  - **Shooting them:** their tops can be shot (250) but don't count toward the tower-field tally or bonus. Bots don't target them.
+  - **Drawing:** seen from inside the trench, each rim tower is clipped at your sight line over the lip, so only the part above the edge shows.
+  - **HUD:** reads "TOO HIGH - THE TOWERS ARE FIRING".
 - Test switch `VS_SURFLEN=n` (short tower field).
 - **Soak** (1 / 2 / 4 bots, 400 s): every run turned into the trench. 2–3 trench hits, no pulling up out of the trench; port hit with 2 and 4 bots.
 
