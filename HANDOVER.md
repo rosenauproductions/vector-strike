@@ -6,7 +6,7 @@
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
 ## v20 (29 Oct, Cowork session) — colour modes, colour per item, arcade-style shield arch (md5 5224779f330518421c554de85f8133fe)
-`dist-beta/vectorstrike_beta.x86_64` = this build. **Not deployed yet** (v19 isn't either: the session wasn't linked to Chris's Mac). Deploy as the only game, no backup. No model changes; `web/dist` still v18.
+**29 Oct ~07:55: installed on ARCADE-21 as the only Vector Strike** (md5 verified on the share; replaces v14, so v15-v19 arrive with it; no backup; the 23 model files on the box already match the repo). Not yet run on the box. `dist-beta/vectorstrike_beta.x86_64` = this build. No model changes; `web/dist` still v18.
 - **Options > COLORS** (new row, A opens the editor, left/right on the row cycles the mode). `COLS[CI_N]` holds one colour per item and everything draws from it.
   - Items: TIE fighters, Darth Vader, fireballs, your lasers, battle station, station surface, towers, tower tops, trench walls, trench turrets, catwalks, exhaust port, Star Destroyers, freighter, bombers, asteroids, stars, shield bar. The old `C_ENEMY` / `C_BALL` / `C_TRENCH` / `C_GROUND` / `C_TOWER` / `C_CAT` / `C_CIT` are now macros onto the table.
   - Modes: **VECTOR** (the game's own colours), **ARCADE 1983**, **GREEN SCREEN**, **WHITE VECTOR**, **CUSTOM**.
