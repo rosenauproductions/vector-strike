@@ -5,6 +5,8 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+**29 Oct ~12:40: installed on ARCADE-21** (md5 bee9d0fa2ccc3dc2b44ee80a864ea443 verified on the share, no backup). That build has everything through the rim towers: v20 tower tops, v21 canyon crossing + turn-in + edge fade, rim towers.
+
 ## v21 (29 Oct, Cowork session) — the canyon crosses the tower field; railed turn-in (md5 f40bfc416e6585904aef7e1ab3fbf2f4)
 - **The trench now cuts straight across your path at the end of the tower field**, at `G.crossZ` = start + surfLen + 250. The tower layout carries on beyond it as scenery: towers flagged `side = 9`, spread ±420, up to 1300 past the trench. They don't fire and don't count toward TOWER TOPS. The HUD says `TRENCH IN n`. The surface grid is wider (±1600) with a gap where the canyon is.
 - **How the crossing is drawn:** the ordinary `drawTrench` code is used, through a rotated copy of the camera (`drawCrossing`, `crossToT`): surface coords S → trench coords T is T.x = d·(crossZ − S.z), T.y = S.y − GROUND_Y, T.z = d·S.x, where d = `crossD` = ±1, random left or right. It's drawn twice, once for each direction along the crossing.
