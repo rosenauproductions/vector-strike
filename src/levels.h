@@ -225,7 +225,7 @@ static void drawRocks(Canvas& cv, const Cam& cam0) {
         if (c.z > 2500 && k.r < 40) continue;
         if (c.z > 1 && k.r * cam.foc / c.z < 1.2f) continue;
         V3 f, r, u; rockSpin(k, f, r, u);
-        drawModelRU(cv, cam, ROCKM[k.shape], k.p, f, r, u, k.r, Col(195, 175, 150), 1.1f, 0.15f);
+        drawModelRU(cv, cam, ROCKM[k.shape], k.p, f, r, u, k.r, COLS[CI_ROCK], 1.1f, 0.15f);
     }
 }
 
@@ -418,7 +418,7 @@ static void updateTurretPhase(float dt) {
 }
 static void drawFalconFromTurret(Canvas& cv, const Cam& cam) {   // the hull round you, minus the turret dome you sit in
     const Model& m = PK_FALCON; if (m.v.empty()) return;
-    V3 f(0, 0, 1), r(1, 0, 0), u(0, 1, 0); Col c = Col(255, 225, 160, 150);
+    V3 f(0, 0, 1), r(1, 0, 0), u(0, 1, 0); Col c = withA(COLS[CI_FREIGHTER], 0.59f);
     for (size_t i = 0; i + 1 < m.e.size(); i += 2) {
         V3 a = G.falP + m.v[m.e[i]] * FAL_S, b = G.falP + m.v[m.e[i + 1]] * FAL_S, mid = (a + b) * 0.5f;
         if (len3(mid - cam.p) < 3.2f) continue;
@@ -590,6 +590,6 @@ static void drawEscorts(Canvas& cv, const Cam& cam) {
     for (auto& e : G.esc) {
         if (!e.alive || e.gone) continue;
         V3 f = e.f, r = norm3(cross3(V3(0, 1, 0), f)), u = cross3(f, r);
-        drawModelRU(cv, cam, PK_YWING, e.p, f, r, u, S_PLAYER * 1.3f * visScale(cam.p, e.p, 150, 900, 0.7f), e.flash > 0 ? C_WHITE : Col(230, 240, 255), 1.3f, 1);
+        drawModelRU(cv, cam, PK_YWING, e.p, f, r, u, S_PLAYER * 1.3f * visScale(cam.p, e.p, 150, 900, 0.7f), e.flash > 0 ? C_WHITE : COLS[CI_BOMBER], 1.3f, 1);
     }
 }

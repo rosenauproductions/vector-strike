@@ -213,9 +213,53 @@ static void box3(Canvas& cv, const Cam& cam, V3 a, V3 b, Col c, float w = 1.2f, 
 // ---------------------------------------------------------------- data
 static const Col PCOL[4] = { Col(70, 210, 255), Col(255, 175, 50), Col(130, 255, 110), Col(255, 100, 225) };
 static const Col C_WHITE(255, 255, 255), C_DIM(115, 130, 160), C_GOOD(110, 255, 140), C_BAD(255, 80, 80);
-static const Col C_ENEMY(255, 70, 90), C_BALL(255, 130, 40), C_TRENCH(60, 130, 255), C_GROUND(50, 120, 230), C_TOWER(90, 255, 150), C_CAT(255, 160, 40), C_PORT(255, 235, 90), C_CIT(150, 170, 255);
+static const Col C_PORT(255, 235, 90);   // menu / HUD accent
+// ---- colour per item (Options > COLORS). Modes: VECTOR (this game's own look), ARCADE 1983 (the Atari cabinet's colour
+// vector palette: yellow Death Star grid, red trench turrets, green TIEs, ...), GREEN SCREEN and WHITE VECTOR (one-colour
+// monitors), CUSTOM (any item changed by hand; saved as colc_<key>=0xRRGGBB in vectorstrike.cfg).
+enum { CI_FIGHTER, CI_ACE, CI_FIREBALL, CI_LASER, CI_STATION, CI_SURFACE, CI_TOWER, CI_TOWERTOP, CI_TRENCH, CI_TURRET, CI_CATWALK, CI_PORT, CI_DESTROYER, CI_FREIGHTER, CI_BOMBER, CI_ROCK, CI_STARS, CI_SHIELDS, CI_N };
+struct ColItem { const char* key; const char* name; Col vec, arc; };
+static const ColItem CITEMS[CI_N] = {
+    { "fighter", "TIE FIGHTERS", Col(255, 70, 90), Col(70, 255, 110) },
+    { "ace", "DARTH VADER", Col(235, 225, 255), Col(255, 255, 255) },
+    { "fireball", "FIREBALLS", Col(255, 130, 40), Col(255, 90, 50) },
+    { "laser", "YOUR LASERS", Col(255, 70, 60), Col(255, 60, 60) },
+    { "station", "BATTLE STATION", Col(150, 170, 255), Col(255, 220, 80) },
+    { "surface", "STATION SURFACE", Col(50, 120, 230), Col(255, 215, 60) },
+    { "tower", "TOWERS", Col(90, 255, 150), Col(80, 255, 110) },
+    { "towertop", "TOWER TOPS", Col(255, 70, 90), Col(255, 60, 60) },
+    { "trench", "TRENCH WALLS", Col(60, 130, 255), Col(80, 110, 255) },
+    { "turret", "TRENCH TURRETS", Col(255, 160, 40), Col(255, 50, 50) },
+    { "catwalk", "CATWALKS", Col(255, 160, 40), Col(255, 210, 60) },
+    { "port", "EXHAUST PORT", Col(255, 235, 90), Col(255, 80, 60) },
+    { "destroyer", "STAR DESTROYERS", Col(170, 185, 215), Col(200, 210, 235) },
+    { "freighter", "FREIGHTER", Col(255, 225, 160), Col(255, 225, 160) },
+    { "bomber", "BOMBERS", Col(230, 240, 255), Col(255, 255, 255) },
+    { "rock", "ASTEROIDS", Col(195, 175, 150), Col(200, 180, 150) },
+    { "stars", "STARS", Col(200, 215, 255), Col(255, 255, 255) },
+    { "shields", "SHIELD BAR", Col(0, 0, 0), Col(70, 255, 110) },   // VECTOR: each player's own colour; ARCADE: green, yellow when low, red at the end
+};
+enum { CM_VECTOR, CM_ARCADE, CM_GREEN, CM_WHITE, CM_CUSTOM, CM_N };
+static const char* CMODES[CM_N] = { "VECTOR", "ARCADE 1983", "GREEN SCREEN", "WHITE VECTOR", "CUSTOM" };
+static Col COLS[CI_N], CUSTOMC[CI_N];
+static void applyColorMode(int m) {
+    for (int i = 0; i < CI_N; i++)
+        COLS[i] = m == CM_ARCADE ? CITEMS[i].arc : m == CM_GREEN ? Col(80, 255, 120) : m == CM_WHITE ? Col(228, 234, 255) : m == CM_CUSTOM ? CUSTOMC[i] : CITEMS[i].vec;
+}
+struct NamedCol { const char* name; Col c; };
+static const NamedCol PALETTE[13] = { { "RED", Col(255, 60, 60) }, { "ORANGE", Col(255, 140, 40) }, { "AMBER", Col(255, 190, 60) }, { "YELLOW", Col(255, 235, 80) },
+    { "LIME", Col(170, 255, 60) }, { "GREEN", Col(70, 255, 110) }, { "TEAL", Col(60, 255, 210) }, { "CYAN", Col(70, 220, 255) }, { "BLUE", Col(70, 120, 255) },
+    { "VIOLET", Col(160, 110, 255) }, { "PINK", Col(255, 100, 210) }, { "WHITE", Col(240, 245, 255) }, { "GREY", Col(150, 160, 180) } };
+static int nearestPal(Col c) { int b = 0; long bd = 1L << 40; for (int i = 0; i < 13; i++) { long dr = c.r - PALETTE[i].c.r, dg = c.g - PALETTE[i].c.g, db = c.b - PALETTE[i].c.b; long d = dr * dr + dg * dg + db * db; if (d < bd) { bd = d; b = i; } } return b; }
+#define C_ENEMY (COLS[CI_FIGHTER])
+#define C_BALL (COLS[CI_FIREBALL])
+#define C_TRENCH (COLS[CI_TRENCH])
+#define C_GROUND (COLS[CI_SURFACE])
+#define C_TOWER (COLS[CI_TOWER])
+#define C_CAT (COLS[CI_CATWALK])
+#define C_CIT (COLS[CI_STATION])
 
-enum { ST_TITLE, ST_HELP, ST_OPTIONS, ST_LOBBY, ST_GAME, ST_ICON, ST_LOGO };
+enum { ST_TITLE, ST_HELP, ST_OPTIONS, ST_LOBBY, ST_GAME, ST_ICON, ST_LOGO, ST_COLORS };
 enum { PH_SPACE, PH_SURFACE, PH_TRENCH, PH_ESCAPE, PH_TALLY, PH_ASTEROIDS, PH_LIGHTSPEED, PH_TUNNEL, PH_TURRET, PH_FOX, PH_TANK, PH_HOTH };
 enum { EN_FIGHTER, EN_TOWER, EN_TURRET, EN_PURSUER, EN_REACTOR };   // pursuer: chases you down the trench / tunnel
 static const char* RESNAMES[5] = { "AUTO", "1280 X 720", "1920 X 1080", "2560 X 1440", "3840 X 2160" };
@@ -258,7 +302,7 @@ struct Player {
     bool tailNow = false; float tailHold = 0, tailDist = 0, camBack = 0; std::string msg; float msgT = 0;   // enemy-on-your-tail state
     SDL_Rect vp = { 0, 0, 0, 0 }; Cam cam;
 };
-struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5, trench = 1; bool radar = true; int best = 0, bestWave = 0; bool rails = false; int foes = 1; };   // foes: ENEMY WAVES 0 fewer / 1 normal / 2 more / 3 lots
+struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5, trench = 1; bool radar = true; int best = 0, bestWave = 0; bool rails = false; int foes = 1; int colMode = 0; };   // foes: ENEMY WAVES 0 fewer / 1 normal / 2 more / 3 lots
 static float turnMul();
 
 struct Game {
@@ -293,17 +337,22 @@ struct Game {
 // ---------------------------------------------------------------- config
 static void saveCfg() {
     FILE* f = fopen(G.cfgPath.c_str(), "w"); if (!f) return;
-    fprintf(f, "res=%d\nglow=%d\nshake=%d\nsfx=%d\nmusic=%d\ninvert=%d\nturn=%d\nchase=%d\ntrench=%d\nradar=%d\nbest=%d\nbest_wave=%d\nrails=%d\nfoes=%d\n", G.opt.res, G.opt.glow, G.opt.shake, G.opt.sfx, G.opt.mus, G.opt.invert, G.opt.turn, G.opt.chase, G.opt.trench, G.opt.radar, G.opt.best, G.opt.bestWave, G.opt.rails, G.opt.foes);
+    fprintf(f, "res=%d\nglow=%d\nshake=%d\nsfx=%d\nmusic=%d\ninvert=%d\nturn=%d\nchase=%d\ntrench=%d\nradar=%d\nbest=%d\nbest_wave=%d\nrails=%d\nfoes=%d\ncolmode=%d\n", G.opt.res, G.opt.glow, G.opt.shake, G.opt.sfx, G.opt.mus, G.opt.invert, G.opt.turn, G.opt.chase, G.opt.trench, G.opt.radar, G.opt.best, G.opt.bestWave, G.opt.rails, G.opt.foes, G.opt.colMode);
+    for (int i = 0; i < CI_N; i++) fprintf(f, "colc_%s=%ld\n", CITEMS[i].key, ((long)CUSTOMC[i].r << 16) | ((long)CUSTOMC[i].g << 8) | CUSTOMC[i].b);
     fclose(f);
 #ifdef __EMSCRIPTEN__
     EM_ASM({ FS.syncfs(false, function (e) { if (e) console.warn('save failed', e); }); });   // /save is browser storage (IndexedDB)
 #endif
 }
 static void loadCfg() {
+    for (int i = 0; i < CI_N; i++) CUSTOMC[i] = CITEMS[i].vec.r || CITEMS[i].vec.g || CITEMS[i].vec.b ? CITEMS[i].vec : CITEMS[i].arc;
+    struct ApplyCols { ~ApplyCols() { applyColorMode(G.opt.colMode); } } applyCols;   // whatever happens below
     FILE* f = fopen(G.cfgPath.c_str(), "r"); if (!f) return;
     char k[64]; long v;
     while (fscanf(f, " %63[^=]=%ld", k, &v) == 2) {
         std::string s = k;
+        if (s == "colmode") G.opt.colMode = (int)clampf((float)v, 0, CM_N - 1);
+        for (int i = 0; i < CI_N; i++) if (s == std::string("colc_") + CITEMS[i].key) CUSTOMC[i] = Col((uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v);
         if (s == "res") G.opt.res = (int)clampf((float)v, 0, 4); else if (s == "glow") G.opt.glow = v != 0; else if (s == "shake") G.opt.shake = v != 0;
         else if (s == "sfx") G.opt.sfx = (int)clampf((float)v, 0, 10); else if (s == "music") G.opt.mus = (int)clampf((float)v, 0, 10);
         else if (s == "invert") G.opt.invert = v != 0; else if (s == "turn") G.opt.turn = (int)clampf((float)v, 1, 10); else if (s == "chase") G.opt.chase = (int)clampf((float)v, 1, 10); else if (s == "trench") G.opt.trench = (int)clampf((float)v, 0, 2); else if (s == "radar") G.opt.radar = v != 0; else if (s == "rails") G.opt.rails = v != 0; else if (s == "foes") G.opt.foes = (int)clampf((float)v, 0, 3);
@@ -569,13 +618,13 @@ static void playerFire(Player& p) {
     V3 ship = ppos(p), fw = isSpace() ? p.fwd : V3(0, 0, 1);
     if (G.phase == PH_TURRET && p.turret >= 2) {   // cockpit crew: the forward guns on the mandibles, or a missile from under the cockpit
         if (missile) { G.bolts.push_back({ G.falP + V3(0.6f, -0.06f, 0.8f) * FAL_S, end, 0.42f, 0.42f, Col(255, 170, 60), p.idx, 0, 9 }); AU.play(SND_BALL, 0.7f); }
-        else for (int sx = -1; sx <= 1; sx += 2) G.bolts.push_back({ G.falP + V3(sx < 0 ? -0.3f : 0.28f, 0.0f, 1.0f) * FAL_S, end, 0.16f, 0.16f, Col(255, 70, 60), p.idx, sx, 0 });
+        else for (int sx = -1; sx <= 1; sx += 2) G.bolts.push_back({ G.falP + V3(sx < 0 ? -0.3f : 0.28f, 0.0f, 1.0f) * FAL_S, end, 0.16f, 0.16f, COLS[CI_LASER], p.idx, sx, 0 });
     } else
     for (int sx = -1; sx <= 1; sx += 2) for (int sy = -1; sy <= 1; sy += 2) {
         V3 tip = ship + rt * (sx * 0.78f * S_PLAYER) + up * (sy * 0.25f * S_PLAYER) + fw * (0.3f * S_PLAYER);
         if (G.phase == PH_TURRET) { int pair = p.gun ? 1 : -1; if (sy != pair) continue; tip = tcp(c, turretBarrel((sy > 0 ? 0 : 2) + (sx > 0 ? 1 : 0), 1)); }
         else if (modelCockpit(p)) { V3 sp, sf, sr, su; shipFrame(p, sp, sf, sr, su); V3 m = shipOf(p).muz[muzzleIdx(sx, sy)] * (S_PLAYER * shipOf(p).k); tip = sp + sr * m.x + su * m.y + sf * m.z; }
-        G.bolts.push_back({ tip, end, 0.16f, 0.16f, Col(255, 70, 60), p.idx, sx, sy });
+        G.bolts.push_back({ tip, end, 0.16f, 0.16f, COLS[CI_LASER], p.idx, sx, sy });
     }
     if (!missile) AU.play(SND_LASER, 0.42f, clampf((p.vp.x + p.vp.w * 0.5f) / G.W * 2 - 1, -0.5f, 0.5f), R.range(0.95f, 1.05f), 40);
     if (idx < 0) { if (missile) G.flashes.push_back({ end, 0.35f, 0.35f, 14, Col(255, 190, 110), true }); return; }
@@ -1204,7 +1253,7 @@ static void drawSky(Canvas& cv, const Cam& cam, bool upperOnly) {
         if (upperOnly && d.y < 0.02f) continue;
         V3 c(dot3(d, cam.r), dot3(d, cam.u), dot3(d, cam.f)); if (c.z < 0.05f) continue;
         V2 s = cam.scr(c); if (s.x < cam.vp.x || s.y < cam.vp.y || s.x > cam.vp.x + cam.vp.w || s.y > cam.vp.y + cam.vp.h) continue;
-        float sz = 1.6f * LW; cv.rectAdd(s.x - sz / 2, s.y - sz / 2, sz, sz, Col(200, 215, 255, 150));
+        float sz = 1.6f * LW; cv.rectAdd(s.x - sz / 2, s.y - sz / 2, sz, sz, withA(COLS[CI_STARS], 0.59f));
     }
 }
 static void drawStars3(Canvas& cv, const Cam& cam, V3 vel) {
@@ -1287,7 +1336,7 @@ static void drawTrench(Canvas& cv, const Cam& cam, float zc, float z0, float zEn
         for (int k = 0; k < 3; k++) {
             float s = 12.f - k * 4;
             V3 q[4] = { pp + V3(-s, 0, -s), pp + V3(s, 0, -s), pp + V3(s, 0, s), pp + V3(-s, 0, s) };
-            for (int i = 0; i < 4; i++) line3(cv, cam, q[i], q[(i + 1) % 4], 1.6f, k == 2 ? withA(C_PORT, 0.5f + 0.5f * pulse) : C_PORT, 1.2f);
+            for (int i = 0; i < 4; i++) line3(cv, cam, q[i], q[(i + 1) % 4], 1.6f, k == 2 ? withA(COLS[CI_PORT], 0.5f + 0.5f * pulse) : COLS[CI_PORT], 1.2f);
         }
         blob3(cv, cam, pp, 5 + 2 * pulse, withA(C_PORT, 0.6f));
     }
@@ -1351,8 +1400,8 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
         if (G.phase == PH_ASTEROIDS || G.phase == PH_TURRET) drawRocks(cv, cam);
         if (G.phase == PH_SPACE) drawEscorts(cv, cam);
         if (G.phase == PH_TURRET) drawFalconFromTurret(cv, cam);
-        if (G.phase == PH_SPACE || G.phase == PH_ASTEROIDS) { Cam far = cam; far.fogNear = 6000; far.fogFar = 12000; for (auto& c : G.caps) drawModelRU(cv, far, PK_DESTROYER, c.p, c.f, c.r, c.u, c.L, Col(170, 185, 215), 1.2f, 0.6f); }
-        if (G.ally.on && G.ally.shown && G.phase == PH_SPACE && G.level != 2) { V3 f = norm3(G.ally.v), r = norm3(cross3(V3(0, 1, 0), f)), u = cross3(f, r); drawModelRU(cv, cam, PK_FALCON, G.ally.p, f, r, u, 15, Col(255, 225, 160), 1.3f, 1); }
+        if (G.phase == PH_SPACE || G.phase == PH_ASTEROIDS) { Cam far = cam; far.fogNear = 6000; far.fogFar = 12000; for (auto& c : G.caps) drawModelRU(cv, far, PK_DESTROYER, c.p, c.f, c.r, c.u, c.L, COLS[CI_DESTROYER], 1.2f, 0.6f); }
+        if (G.ally.on && G.ally.shown && G.phase == PH_SPACE && G.level != 2) { V3 f = norm3(G.ally.v), r = norm3(cross3(V3(0, 1, 0), f)), u = cross3(f, r); drawModelRU(cv, cam, PK_FALCON, G.ally.p, f, r, u, 15, COLS[CI_FREIGHTER], 1.3f, 1); }
     } else if (G.phase == PH_SURFACE) {
         drawSurface(cv, cam, G.z);
         float zt = G.zStart + G.surfLen + 250;   // trench entrance ahead
@@ -1369,7 +1418,7 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
         drawTrench(cv, cam, G.z, G.trenchZ0 - 400, G.trenchZ0 + G.trenchLen, !G.portHit);
         if (G.trenchZ0 > G.z - 400) drawSurface(cv, cam, G.z);
         if (G.ally.shown && G.phase == PH_TRENCH && !PK_FALCON.v.empty()) {   // the freighter coming in head-on over the trench
-            V3 f = norm3(G.ally.v), r = norm3(cross3(V3(0, 1, 0), f)), u = cross3(f, r); drawModelRU(cv, cam, PK_FALCON, G.ally.p, f, r, u, 15, Col(255, 225, 160), 1.3f, 1);
+            V3 f = norm3(G.ally.v), r = norm3(cross3(V3(0, 1, 0), f)), u = cross3(f, r); drawModelRU(cv, cam, PK_FALCON, G.ally.p, f, r, u, 15, COLS[CI_FREIGHTER], 1.3f, 1);
         }
     }
     cv.flush(G.ren);
@@ -1377,7 +1426,7 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
         Col c = e.flash > 0 ? C_WHITE : C_ENEMY;
         if (e.kind == EN_FIGHTER || e.kind == EN_PURSUER) {
             V3 v = len3(e.v) > 1 ? e.v : V3(0, 0, -1); float roll = e.state == 4 ? e.t * 9 : std::sin(e.t * 2 + e.weave) * 0.6f;
-            const Model& M = e.ace && !PK_ACE.v.empty() ? PK_ACE : *ME; Col ac = e.ace ? (e.flash > 0 ? C_WHITE : Col(235, 225, 255)) : c;
+            const Model& M = e.ace && !PK_ACE.v.empty() ? PK_ACE : *ME; Col ac = e.ace ? (e.flash > 0 ? C_WHITE : COLS[CI_ACE]) : c;
             drawModel(cv, cam, M, e.p, v, roll, S_ENEMY * (e.ace ? 1.1f : 1.f) * enemyVis(cam.p, e.p), ac, e.ace ? 1.6f : 1.4f);
         }
         else if (e.kind == EN_REACTOR) drawReactor(cv, cam, e);
@@ -1385,11 +1434,11 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
             Col tc = e.capDead ? withA(C_TOWER, 0.45f) : C_TOWER;
             box3(cv, cam, V3(e.p.x - 5, GROUND_Y, e.p.z - 5), V3(e.p.x + 5, e.p.y, e.p.z + 5), tc, 1.2f);
             if (!e.capDead) {
-                V3 t = e.p + V3(0, 3, 0); Col cc = e.flash > 0 ? C_WHITE : C_ENEMY;
+                V3 t = e.p + V3(0, 3, 0); Col cc = e.flash > 0 ? C_WHITE : COLS[CI_TOWERTOP];
                 V3 q[6] = { t + V3(0, 4, 0), t + V3(-3.5f, 0, 0), t + V3(0, 0, -3.5f), t + V3(3.5f, 0, 0), t + V3(0, 0, 3.5f), t + V3(0, -3, 0) };
                 for (int i = 1; i <= 4; i++) { int j = i % 4 + 1; line3(cv, cam, q[0], q[i], 1.3f, cc); line3(cv, cam, q[5], q[i], 1.3f, cc); line3(cv, cam, q[i], q[j], 1.3f, cc); }
             }
-        } else drawModel(cv, cam, M_TURRET, e.p, V3(-e.side * 1.f, 0, -0.4f), 0, 1.0f, e.flash > 0 ? C_WHITE : C_CAT, 1.3f);
+        } else drawModel(cv, cam, M_TURRET, e.p, V3(-e.side * 1.f, 0, -0.4f), 0, 1.0f, e.flash > 0 ? C_WHITE : COLS[CI_TURRET], 1.3f);
     }
     for (auto& c : G.cat) box3(cv, cam, V3(-TR_W, c.y0, c.z - 1.5f), V3(TR_W, c.y1, c.z + 1.5f), C_CAT, 1.4f, true);
     FULL_DETAIL = true;
@@ -1490,7 +1539,7 @@ static void drawTargets(Canvas& cv, Player& p, float u) {
     for (auto& e : G.en) if (!e.dead && e.kind == EN_FIGHTER) ts.push_back({ e.p, C_ENEMY, len3(e.p - me), 0 });
     std::sort(ts.begin(), ts.end(), [](const T& a, const T& b) { return a.d < b.d; }); if (ts.size() > 6) ts.resize(6);
     if (G.level != 2 && G.approach) ts.push_back({ G.stC, C_PORT, len3(G.stC - me) - G.stR, 1 });
-    if (G.phase == PH_SPACE) for (auto& e : G.esc) if (e.alive && !e.gone) ts.push_back({ e.p, e.flash > 0 ? C_BAD : Col(230, 240, 255), len3(e.p - me), 9 });
+    if (G.phase == PH_SPACE) for (auto& e : G.esc) if (e.alive && !e.gone) ts.push_back({ e.p, e.flash > 0 ? C_BAD : COLS[CI_BOMBER], len3(e.p - me), 9 });
     for (auto& o : G.pl) if (o.joined && !o.down && &o != &p && o.tailNow && G.phase != PH_TURRET) ts.push_back({ ppos(o), o.col, len3(ppos(o) - me), 2 + o.idx });
     for (auto& t : ts) {
         V3 c = cam.toCam(t.pos); float mx = vp.w * 0.5f - 70 * u, my = vp.h * 0.5f - 100 * u;
@@ -1557,8 +1606,8 @@ static void drawRadar(Canvas& cv, const Player& p, float u) {
     };
     for (auto& c : G.caps) blip(c.p, Col(200, 210, 235), 4.5f);
     if (G.level != 2) blip(G.stC - norm3(G.stC - me) * G.stR, C_PORT, 4);   // nearest point of the station's surface
-    if (G.ally.on && G.ally.shown) blip(G.ally.p, Col(255, 225, 160), 3.5f);
-    for (auto& e : G.esc) if (e.alive && !e.gone) blip(e.p, Col(230, 240, 255), 3.5f);
+    if (G.ally.on && G.ally.shown) blip(G.ally.p, COLS[CI_FREIGHTER], 3.5f);
+    for (auto& e : G.esc) if (e.alive && !e.gone) blip(e.p, COLS[CI_BOMBER], 3.5f);
     for (auto& q : G.pl) if (q.joined && !q.down && &q != &p) blip(ppos(q), q.col, 3);
     for (auto& e : G.en) if (!e.dead && e.kind == EN_FIGHTER) blip(e.p, e.ace ? Col(200, 120, 255) : e.state == 3 && e.tgt == p.idx ? C_WHITE : C_ENEMY, e.ace ? 4.f : 2.5f);
 }
@@ -1598,18 +1647,28 @@ static void drawHud(Canvas& cv, Player& p) {
     // score + shields
     snprintf(buf, sizeof buf, "P%d  %07d", p.idx + 1, p.score); FONT.draw(cv, buf, V2(vp.x + 24 * u, vp.y + 20 * u), 26 * u, p.col);
     snprintf(buf, sizeof buf, "WAVE %d", G.wave); FONT.draw(cv, buf, V2(vp.x + 24 * u, vp.y + 58 * u), 16 * u, withA(C_WHITE, 0.75f));
-    float bw = 30 * u, bh = 16 * u, gap = 6 * u, sx = vp.x + vp.w - 24 * u - MAXSH * (bw + gap) + gap, sy = vp.y + 46 * u;
-    FONT.draw(cv, "SHIELDS", V2(vp.x + vp.w - 24 * u, vp.y + 20 * u), 16 * u, withA(C_WHITE, 0.75f), 2);
-    for (int i = 0; i < MAXSH; i++) {
-        bool on = i < p.shields; Col c = p.shields <= 2 ? C_BAD : p.col;
-        if (on) cv.rect(sx + i * (bw + gap), sy, bw, bh, withA(c, p.hitT > 0 && i == p.shields ? 1 : 0.75f));
-        cv.rectLine(sx + i * (bw + gap), sy, bw, bh, 1.4f * u, on ? c : withA(C_DIM, 0.5f), on ? 0.7f : 0);
+    {   // shields, the arcade way: the charges in an arch at the top centre, the count in the middle;
+        // healthy = the SHIELD BAR colour (VECTOR mode: your own colour), yellow when low, red and flashing on the last one
+        Col base = G.opt.colMode == CM_VECTOR ? p.col : COLS[CI_SHIELDS];
+        Col sc2 = p.shields >= 4 ? base : p.shields >= 2 ? Col(255, 215, 60) : withA(C_BAD, 0.55f + 0.45f * std::sin(G.time * 12));
+        float Ro = 66 * u, Ri = 48 * u, ay = vp.y + 84 * u, a0 = PI * 1.12f, a1 = PI * 1.88f;
+        auto at = [&](float a, float r) { return V2(cx + std::cos(a) * r, ay + std::sin(a) * r); };
+        for (int i = 0; i < MAXSH; i++) {
+            float ta = a0 + (a1 - a0) * (i + 0.1f) / MAXSH, tb = a0 + (a1 - a0) * (i + 0.9f) / MAXSH;
+            V2 q0 = at(ta, Ro), q1 = at(tb, Ro), q2 = at(tb, Ri), q3 = at(ta, Ri);
+            bool on = i < p.shields, lost = p.hitT > 0 && i == p.shields;
+            if (on || lost) { Col fc = lost ? withA(C_WHITE, p.hitT * 2) : withA(sc2, 0.8f); cv.quad(cv.fillV, q0, q1, q2, q3, fc, fc, fc, fc); }
+            Col lc = on ? sc2 : withA(C_DIM, 0.45f);
+            cv.line(q0, q1, 1.3f * u, lc, on ? 0.6f : 0); cv.line(q1, q2, 1.3f * u, lc, on ? 0.6f : 0); cv.line(q2, q3, 1.3f * u, lc, on ? 0.6f : 0); cv.line(q3, q0, 1.3f * u, lc, on ? 0.6f : 0);
+        }
+        snprintf(buf, sizeof buf, "%d", std::max(0, p.shields)); FONT.draw(cv, buf, V2(cx, ay - 34 * u), 28 * u, sc2, 1, 0, 0.8f);
+        FONT.draw(cv, "SHIELDS", V2(cx, ay - 2 * u), 12 * u, withA(C_WHITE, 0.6f), 1);
     }
     // objective line
     std::string obj; Col oc = withA(C_WHITE, 0.85f);
     switch (G.phase) {
     case PH_SPACE: if (G.level == 1 && G.escStage < 3) {
-            if (G.escStage == 0) { obj = "PROTECT THE BOMBERS"; int k = 0; for (auto& e : G.esc) { if (e.alive && !e.gone) { snprintf(buf, sizeof buf, "BOMBER %d  %s", k + 1, std::string((size_t)std::max(0.f, e.hp), '=').c_str()); FONT.draw(cv, buf, V2(cx, vp.y + (52 + 18 * k) * u), 14 * u, e.flash > 0 ? C_WHITE : Col(230, 240, 255, 220), 1); } k++; } }
+            if (G.escStage == 0) { obj = "PROTECT THE BOMBERS"; int k = 0; for (auto& e : G.esc) { if (e.alive && !e.gone) { snprintf(buf, sizeof buf, "BOMBER %d  %s", k + 1, std::string((size_t)std::max(0.f, e.hp), '=').c_str()); FONT.draw(cv, buf, V2(cx, vp.y + (132 + 18 * k) * u), 14 * u, e.flash > 0 ? C_WHITE : Col(230, 240, 255, 220), 1); } k++; } }
             else if (G.escStage == 1) obj = "COVER THE BOMBERS  " + std::to_string(std::max(0, G.killsNeeded - G.killsDone)); else obj = "BOMBER GROUP - COME IN";
         } else if (G.approach) { obj = "ATTACK THE STATION " + std::to_string((int)std::max(0.f, len3(G.stC - ppos(p)) - G.stR - 700) / 10 * 10); oc = withA(C_PORT, 0.9f); } else obj = "INTERCEPTORS " + std::to_string(std::max(0, G.killsNeeded - G.killsDone)); break;
     case PH_SURFACE: { int left = (int)std::max(0.f, G.zStart + G.surfLen + 250 - G.z); obj = "TOWER TOPS " + std::to_string(G.towersHit) + " / " + std::to_string(G.towersTotal) + "    TRENCH IN " + std::to_string(left / 10 * 10); break; }
@@ -1643,7 +1702,7 @@ static void drawHud(Canvas& cv, Player& p) {
     case PH_TRENCH: { int left = (int)std::max(0.f, G.trenchZ0 + G.trenchLen - G.z); obj = "EXHAUST PORT " + std::to_string(left / 10 * 10); if (left < 650) oc = withA(C_PORT, 0.6f + 0.4f * std::sin(G.time * 12)); break; }
     default: break;
     }
-    if (!obj.empty()) FONT.draw(cv, obj.c_str(), V2(cx, vp.y + 22 * u), 20 * u, oc, 1);
+    if (!obj.empty()) FONT.draw(cv, obj.c_str(), V2(cx, vp.y + 104 * u), 20 * u, oc, 1);   // under the shield arch
     if (G.phase == PH_TRENCH && !p.down && p.y > -1.0f) FONT.draw(cv, "TOO HIGH - SURFACE GUNS", V2(cx, cy + 120 * u), 24 * u, withA(C_ENEMY, 0.55f + 0.45f * std::sin(G.time * 18)), 1);
     if (G.phase == PH_TRENCH) for (auto& c : G.cat) { float d = c.z - G.z; if (d > 0 && d < 330) { FONT.draw(cv, "CATWALK", V2(cx, vp.y + 52 * u), 18 * u, withA(C_CAT, 0.5f + 0.5f * std::sin(G.time * 16)), 1); break; } }
     if (G.phase == PH_TALLY) {
@@ -1968,7 +2027,7 @@ static void updateMenus(float dt) {
         break;
     case ST_HELP: if (m.a || m.b || m.start) { G.state = ST_TITLE; G.menuSel = 4; AU.play(SND_UI, 0.6f); } break;
     case ST_OPTIONS: {
-        if (m.y) { G.menuSel = (G.menuSel + m.y + 12) % 12; AU.play(SND_UI, 0.6f); }
+        if (m.y) { G.menuSel = (G.menuSel + m.y + 13) % 13; AU.play(SND_UI, 0.6f); }
         int dx = m.x + (m.a ? 1 : 0);
         if (dx) {
             AU.play(SND_UI, 0.6f);
@@ -1984,11 +2043,25 @@ static void updateMenus(float dt) {
             case 8: G.opt.trench = (G.opt.trench + dx + 3) % 3; break;
             case 9: G.opt.radar = !G.opt.radar; break;
             case 10: G.opt.foes = (G.opt.foes + dx + 4) % 4; break;
-            case 11: if (m.a) { saveCfg(); G.state = ST_TITLE; G.menuSel = 5; } break;
+            case 11: if (m.a) { G.state = ST_COLORS; G.menuSel = 0; } else { G.opt.colMode = (G.opt.colMode + dx + CM_N) % CM_N; applyColorMode(G.opt.colMode); } break;
+            case 12: if (m.a) { saveCfg(); G.state = ST_TITLE; G.menuSel = 5; } break;
             }
             applyAudioVol();
         }
         if (m.b) { saveCfg(); G.state = ST_TITLE; G.menuSel = 5; }
+        break;
+    }
+    case ST_COLORS: {   // row 0 colour mode, rows 1..CI_N one per item, then BACK
+        int rows = CI_N + 2;
+        if (m.y) { G.menuSel = (G.menuSel + m.y + rows) % rows; AU.play(SND_UI, 0.6f); }
+        int dx = m.x + (m.a && G.menuSel < rows - 1 ? 1 : 0);
+        if (dx && G.menuSel == 0) { G.opt.colMode = (G.opt.colMode + dx + CM_N) % CM_N; applyColorMode(G.opt.colMode); AU.play(SND_UI, 0.6f); }
+        else if (dx && G.menuSel <= CI_N) {   // changing any item switches to CUSTOM, starting from what's on screen now
+            int i = G.menuSel - 1;
+            if (G.opt.colMode != CM_CUSTOM) { for (int k = 0; k < CI_N; k++) CUSTOMC[k] = COLS[k]; if (i == CI_SHIELDS && G.opt.colMode == CM_VECTOR) CUSTOMC[i] = PALETTE[5].c; G.opt.colMode = CM_CUSTOM; }
+            CUSTOMC[i] = PALETTE[(nearestPal(CUSTOMC[i]) + dx + 13) % 13].c; applyColorMode(CM_CUSTOM); AU.play(SND_UI, 0.6f);
+        }
+        if ((m.a && G.menuSel == rows - 1) || m.b) { saveCfg(); G.state = ST_OPTIONS; G.menuSel = 11; AU.play(SND_UI, 0.6f); }
         break;
     }
     case ST_LOBBY: {
@@ -2055,7 +2128,7 @@ static void renderMenus(Canvas& cv) {
     }
     case ST_OPTIONS: {
         FONT.draw(cv, "OPTIONS", V2(cx, 110 * u), 50 * u, C_PORT, 1, 0, 1.1f);
-        char l[12][64];
+        char l[13][64];
         snprintf(l[0], 64, "RESOLUTION  %s", RESNAMES[G.opt.res]); snprintf(l[1], 64, "GLOW  %s", G.opt.glow ? "ON" : "OFF");
         snprintf(l[2], 64, "SCREEN SHAKE  %s", G.opt.shake ? "ON" : "OFF"); snprintf(l[3], 64, "SOUND  %d", G.opt.sfx); snprintf(l[4], 64, "MUSIC  %d", G.opt.mus);
         snprintf(l[5], 64, "INVERT STICK  %s", G.opt.invert ? "ON - PULL BACK TO CLIMB" : "OFF"); snprintf(l[6], 64, "TURN SPEED  %d", G.opt.turn);
@@ -2063,12 +2136,53 @@ static void renderMenus(Canvas& cv) {
         { const char* TD[3] = { "OFF", "LOW", "HIGH" }; snprintf(l[8], 64, "TRENCH DETAIL  %s", TD[G.opt.trench]); }
         snprintf(l[9], 64, "RADAR  %s", G.opt.radar ? "ON" : "OFF");
         { const char* FN[4] = { "FEWER", "NORMAL", "MORE", "LOTS" }; snprintf(l[10], 64, "ENEMY WAVES  %s", FN[G.opt.foes]); }
-        snprintf(l[11], 64, "BACK");
-        const char* items[12] = { l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7], l[8], l[9], l[10], l[11] };
-        menuList(cv, items, 12, G.menuSel, cx, G.H * 0.19f, 29 * u, 45 * u);
+        snprintf(l[11], 64, "COLORS  %s  -  A TO EDIT", CMODES[G.opt.colMode]); snprintf(l[12], 64, "BACK");
+        const char* items[13] = { l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7], l[8], l[9], l[10], l[11], l[12] };
+        menuList(cv, items, 13, G.menuSel, cx, G.H * 0.17f, 28 * u, 43 * u);
         char info[120]; snprintf(info, sizeof info, "DISPLAY %d X %d   RENDERING %d X %d", G.outW, G.outH, G.W, G.H);
         FONT.draw(cv, info, V2(cx, G.H - 100 * u), 15 * u, withA(C_DIM, 0.9f), 1);
         FONT.draw(cv, "LEFT / RIGHT TO CHANGE.  YOUR OWN MUSIC.WAV AND SOUNDS/*.WAV IN THE GAME FOLDER REPLACE THE BUILT-IN AUDIO", V2(cx, G.H - 60 * u), 15 * u, withA(C_DIM, 0.9f), 1);
+        break;
+    }
+    case ST_COLORS: {
+        FONT.draw(cv, "COLORS", V2(cx, 70 * u), 44 * u, C_PORT, 1, 0, 1.1f);
+        int rows = CI_N + 2; float y0 = 140 * u, gap = 40 * u, xl = cx - 560 * u, xr = cx + 40 * u;
+        for (int r = 0; r < rows; r++) {
+            bool s = r == G.menuSel; float y = y0 + r * gap; Col tc = s ? C_PORT : withA(C_WHITE, 0.7f);
+            if (s) { float bl = 0.5f + 0.5f * std::sin(G.stateT * 6); FONT.draw(cv, ">", V2(xl - 40 * u - bl * 5 * u, y), 22 * u, C_PORT, 0); }
+            if (r == 0) { FONT.draw(cv, "MODE", V2(xl, y), 22 * u, tc, 0); FONT.draw(cv, CMODES[G.opt.colMode], V2(xr, y), 22 * u, tc, 0, 0, s ? 0.9f : 0.3f); continue; }
+            if (r == rows - 1) { FONT.draw(cv, "BACK", V2(xl, y), 22 * u, tc, 0, 0, s ? 0.9f : 0.3f); continue; }
+            int i = r - 1; Col c = COLS[i]; bool own = i == CI_SHIELDS && G.opt.colMode == CM_VECTOR;
+            FONT.draw(cv, CITEMS[i].name, V2(xl, y), 20 * u, tc, 0);
+            if (own) { for (int k = 0; k < 4; k++) cv.rect(xr + k * 22 * u, y - 2 * u, 16 * u, 18 * u, withA(PCOL[k], 0.85f)); FONT.draw(cv, "EACH PLAYER'S OWN", V2(xr + 100 * u, y), 18 * u, withA(C_WHITE, 0.7f), 0); continue; }
+            cv.rect(xr, y - 2 * u, 70 * u, 18 * u, withA(c, 0.85f)); cv.rectLine(xr, y - 2 * u, 70 * u, 18 * u, 1.2f * u, c, 0.6f);
+            cv.line(V2(xr + 90 * u, y + 7 * u), V2(xr + 230 * u, y + 7 * u), 2.5f * u, c, 1.2f);   // as a glowing vector line
+            int pi = nearestPal(c); Col pc = PALETTE[pi].c; bool exact = pc.r == c.r && pc.g == c.g && pc.b == c.b;
+            (void)exact; FONT.draw(cv, PALETTE[pi].name, V2(xr + 250 * u, y), 18 * u, withA(C_WHITE, 0.75f), 0);
+        }
+        // preview of the selected item, drawn the way the game draws it
+        int si = G.menuSel - 1;
+        if (si >= 0 && si < CI_N) {
+            SDL_Rect r = { (int)(cx + 420 * u), (int)(220 * u), (int)(460 * u), (int)(420 * u) }; drawPanel(cv, (float)r.x, (float)r.y, (float)r.w, (float)r.h, withA(COLS[si], 0.5f), u);
+            Cam c; c.set(V3(0, 2.5f, -12), 0, -0.2f, 0, r, 0.9f); c.fogNear = 500; c.fogFar = 900; LW = u * 1.4f;
+            V3 fw(std::sin(G.stateT * 0.8f), 0, std::cos(G.stateT * 0.8f)); Col col = COLS[si];
+            const Model* M = nullptr; float sc = 5.f;
+            switch (si) {
+            case CI_FIGHTER: M = ME; break; case CI_ACE: M = PK_ACE.v.empty() ? ME : &PK_ACE; break; case CI_DESTROYER: M = PK_DESTROYER.v.empty() ? nullptr : &PK_DESTROYER; sc = 6; break;
+            case CI_FREIGHTER: M = PK_FALCON.v.empty() ? nullptr : &PK_FALCON; break; case CI_BOMBER: M = PK_YWING.v.empty() ? nullptr : &PK_YWING; break; case CI_STATION: M = MS; break;
+            case CI_TURRET: M = &M_TURRET; sc = 1.6f; break;
+            }
+            if (M) drawModel(cv, c, *M, V3(0, 0, 0), fw, 0, sc, col, 1.4f);
+            else if (si == CI_FIREBALL) { Ball b; b.p = V3(0, 1, 0); b.spin = G.stateT * 4; drawBall(cv, c, b); }
+            else if (si == CI_STARS) { for (int k = 0; k < 60; k++) { V2 q(r.x + std::fmod(k * 97.f, (float)r.w), r.y + std::fmod(k * 53.f + k * k * 7.f, (float)r.h)); cv.rectAdd(q.x, q.y, 2 * u, 2 * u, col); } }
+            else if (si == CI_SHIELDS) { FONT.draw(cv, "SEE THE ARCH AT THE TOP", V2(r.x + r.w * 0.5f, r.y + r.h * 0.5f), 16 * u, withA(C_WHITE, 0.7f), 1); }
+            else {   // a wire block / grid in that colour (towers, trench, catwalks, surface, port, lasers, rocks)
+                for (int k = -3; k <= 3; k++) { line3(cv, c, V3(k * 2.f, -2, -4), V3(k * 2.f, -2, 8), 1.2f, withA(col, 0.6f), 0.3f); line3(cv, c, V3(-6, -2, k * 2.f + 2), V3(6, -2, k * 2.f + 2), 1.2f, withA(col, 0.6f), 0.3f); }
+                box3(cv, c, V3(-1.5f, -2, 0), V3(1.5f, 2.5f, 3), col, 1.4f);
+            }
+            FONT.draw(cv, CITEMS[si].name, V2(r.x + r.w * 0.5f, r.y + r.h + 26 * u), 18 * u, col, 1);
+        }
+        FONT.draw(cv, "LEFT / RIGHT CHANGES.  CHANGING AN ITEM SWITCHES TO CUSTOM (KEPT IN VECTORSTRIKE.CFG).  B: BACK", V2(cx, G.H - 40 * u), 15 * u, withA(C_DIM, 0.9f), 1);
         break;
     }
     case ST_LOBBY: {
@@ -2196,6 +2310,7 @@ static void renderFrame(bool shotNow) {
 
 // ---------------------------------------------------------------- test setup
 static void testSetup() {
+    if (getenv("VS_COLMODE")) { G.opt.colMode = (int)clampf((float)atoi(getenv("VS_COLMODE")), 0, CM_N - 1); applyColorMode(G.opt.colMode); }   // test: colour mode
     const char* st = getenv("VS_STATE"); if (!st) return;
     std::string s = st;
     int n = getenv("VS_PLAYERS") ? atoi(getenv("VS_PLAYERS")) : 1;
@@ -2204,6 +2319,7 @@ static void testSetup() {
     if (s == "logo") { G.state = ST_LOGO; return; }
     if (s == "options") { G.state = ST_OPTIONS; return; }
     if (s == "help") { G.state = ST_HELP; return; }
+    if (s == "colors") { G.state = ST_COLORS; G.menuSel = getenv("VS_COLSEL") ? atoi(getenv("VS_COLSEL")) : 1; return; }
     for (int i = 0; i < n; i++) { joinPlayer(i == 0 ? -1 : 1000 + i); if (G.bots) G.pl[i].bot = true; }
     if (getenv("VS_RAILS")) G.opt.rails = atoi(getenv("VS_RAILS")) != 0;   // test: force ON RAILS on/off
     if (s == "lobby") { G.state = ST_LOBBY; return; }

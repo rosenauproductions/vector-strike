@@ -1,9 +1,25 @@
-# Vector Strike — handover (28 Oct 2026, v19)
+# Vector Strike — handover (29 Oct 2026, v20)
 
 **Code lives on GitHub: `rosenauproductions/vector-strike` (private, branch main).** Cloud sessions: add_repo it and read CLAUDE.md + HANDOVER.md in the repo (HANDOVER.md there is the canonical copy of this doc). Pushed 24 Oct ~21:05 with full history.
 
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
+
+## v20 (29 Oct, Cowork session) — colour modes, colour per item, arcade-style shield arch (md5 5224779f330518421c554de85f8133fe)
+`dist-beta/vectorstrike_beta.x86_64` = this build. **Not deployed yet** (v19 isn't either: the session wasn't linked to Chris's Mac). Deploy as the only game, no backup. No model changes; `web/dist` still v18.
+- **Options > COLORS** (new row, A opens the editor, left/right on the row cycles the mode). `COLS[CI_N]` holds one colour per item and everything draws from it.
+  - Items: TIE fighters, Darth Vader, fireballs, your lasers, battle station, station surface, towers, tower tops, trench walls, trench turrets, catwalks, exhaust port, Star Destroyers, freighter, bombers, asteroids, stars, shield bar. The old `C_ENEMY` / `C_BALL` / `C_TRENCH` / `C_GROUND` / `C_TOWER` / `C_CAT` / `C_CIT` are now macros onto the table.
+  - Modes: **VECTOR** (the game's own colours), **ARCADE 1983**, **GREEN SCREEN**, **WHITE VECTOR**, **CUSTOM**.
+  - ARCADE 1983 palette: yellow Death Star surface and battle station, green TIEs, white Vader, red/orange fireballs, red lasers, green towers with red tops, blue trench, red trench turrets, amber catwalks, red exhaust port, green shield bar.
+  - Sources only confirm the yellow Death Star grid, the red trench turrets and the green "USE THE FORCE" text. The rest is from screenshots and memory, so Chris can fix anything by eye.
+  - The editor lists every item with a swatch, a glowing line sample and the nearest of 13 named palette colours. A preview panel draws the selected item (the TIE model for fighters, the destroyer model, etc.). Changing any item switches to CUSTOM, starting from what's on screen.
+  - Saved as `colmode=` and `colc_<key>=0xRRGGBB` (decimal) in vectorstrike.cfg. Round-trip checked.
+  - Player ship and HUD colours stay per player.
+- **Shields, the arcade way:** the charges now sit in an arch at the top centre of every view (the arcade shows its shield charges top centre), with the count in the middle. The old blocks at the top right are gone.
+  - Colour: green / your colour when healthy, yellow at 2–3, red and flashing on the last one. The segment you just lost flashes white.
+  - The objective line and bomber bars moved down under the arch.
+- Test switches: `VS_COLMODE=0-4`, `VS_STATE=colors` (+ `VS_COLSEL=row`).
+- Soak: 4 bots × 300 s in each colour mode, exit 0.
 
 ## v19 (28 Oct, Cowork session) — bomber gauntlet, tower fight every wave, Falcon crew stations (md5 690d3b1d186e7612db12f04b500556b5)
 `dist-beta/vectorstrike_beta.x86_64` = this build. **Not deployed yet**: the Batocera share wasn't mounted on Chris's Mac when it was built. Deploy as the only game (`roms/ports/vectorstrike/vectorstrike.x86_64`, no backup). No model changes. `web/dist` was NOT rebuilt (no emcc in that session), so the web build is still v18.
