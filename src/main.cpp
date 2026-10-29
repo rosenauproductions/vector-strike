@@ -302,7 +302,7 @@ struct Player {
     bool tailNow = false; float tailHold = 0, tailDist = 0, camBack = 0; std::string msg; float msgT = 0;   // enemy-on-your-tail state
     SDL_Rect vp = { 0, 0, 0, 0 }; Cam cam;
 };
-struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5, trench = 1; bool radar = true; int best = 0, bestWave = 0; bool rails = false; int foes = 1; int colMode = 0; };   // foes: ENEMY WAVES 0 fewer / 1 normal / 2 more / 3 lots
+struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5, trench = 1; bool radar = true; int best = 0, bestWave = 0; bool rails = false, railsManual = false; int foes = 1; int colMode = 0; };   // foes: ENEMY WAVES 0 fewer / 1 normal / 2 more / 3 lots
 static float turnMul();
 
 struct Game {
@@ -355,7 +355,7 @@ static void loadCfg() {
         for (int i = 0; i < CI_N; i++) if (s == std::string("colc_") + CITEMS[i].key) CUSTOMC[i] = Col((uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v);
         if (s == "res") G.opt.res = (int)clampf((float)v, 0, 4); else if (s == "glow") G.opt.glow = v != 0; else if (s == "shake") G.opt.shake = v != 0;
         else if (s == "sfx") G.opt.sfx = (int)clampf((float)v, 0, 10); else if (s == "music") G.opt.mus = (int)clampf((float)v, 0, 10);
-        else if (s == "invert") G.opt.invert = v != 0; else if (s == "turn") G.opt.turn = (int)clampf((float)v, 1, 10); else if (s == "chase") G.opt.chase = (int)clampf((float)v, 1, 10); else if (s == "trench") G.opt.trench = (int)clampf((float)v, 0, 2); else if (s == "radar") G.opt.radar = v != 0; else if (s == "rails") G.opt.rails = v != 0; else if (s == "foes") G.opt.foes = (int)clampf((float)v, 0, 3);
+        else if (s == "invert") G.opt.invert = v != 0; else if (s == "turn") G.opt.turn = (int)clampf((float)v, 1, 10); else if (s == "chase") G.opt.chase = (int)clampf((float)v, 1, 10); else if (s == "trench") G.opt.trench = (int)clampf((float)v, 0, 2); else if (s == "radar") G.opt.radar = v != 0;  else if (s == "foes") G.opt.foes = (int)clampf((float)v, 0, 3);
         else if (s == "best") G.opt.best = (int)v; else if (s == "best_wave") G.opt.bestWave = (int)v;
     }
     fclose(f);
@@ -2013,7 +2013,7 @@ static void joinPlayer(int devId) {
     for (int i = 0; i < 4; i++) if (!G.pl[i].joined) {
         Player& p = G.pl[i]; p = Player(); p.joined = true; p.dev = devId; p.idx = i; p.col = PCOL[i]; p.invert = G.opt.invert;
         Dev* d = devById(devId); if (d && d->gc) SDL_GameControllerSetPlayerIndex(d->gc, i);
-        if (d && d->wii) { wiiLeds(*d, i); wiiRumble(d->id, 150); if (!G.opt.rails) { G.opt.rails = true; printf("lobby: Wii remote joined - ON RAILS\n"); } }
+        if (d && d->wii) { wiiLeds(*d, i); wiiRumble(d->id, 150); }
         AU.play(SND_UI_OK, 0.7f); printf("lobby: P%d joined (%s)\n", i + 1, devId == -1 ? "keyboard" : d ? d->name.c_str() : "test");
         return;
     }
@@ -2023,7 +2023,7 @@ static void updateMenus(float dt) {
     switch (G.state) {
     case ST_TITLE:
         if (m.y) { G.menuSel = (G.menuSel + m.y + 7) % 7; AU.play(SND_UI, 0.6f); }
-        if (m.a || m.start) { AU.play(SND_UI_OK, 0.7f); if (G.menuSel <= 3) { G.mode = G.menuSel; G.state = ST_LOBBY; G.menuSel = 0; } else if (G.menuSel == 4) G.state = ST_HELP; else if (G.menuSel == 5) { G.state = ST_OPTIONS; G.menuSel = 0; } else G.quit = true; }
+        if (m.a || m.start) { AU.play(SND_UI_OK, 0.7f); if (G.menuSel <= 3) { G.mode = G.menuSel; G.state = ST_LOBBY; G.menuSel = 0; G.opt.railsManual = false; } else if (G.menuSel == 4) G.state = ST_HELP; else if (G.menuSel == 5) { G.state = ST_OPTIONS; G.menuSel = 0; } else G.quit = true; }
         break;
     case ST_HELP: if (m.a || m.b || m.start) { G.state = ST_TITLE; G.menuSel = 4; AU.play(SND_UI, 0.6f); } break;
     case ST_OPTIONS: {
@@ -2066,6 +2066,10 @@ static void updateMenus(float dt) {
     }
     case ST_LOBBY: {
         bool startNow = false;
+        if (!G.opt.railsManual) {   // ON RAILS follows the controllers: on while a Wii remote player is in, off otherwise (until toggled by hand)
+            bool wii = false; for (auto& q : G.pl) if (q.joined) { Dev* dv = devById(q.dev); if (dv && dv->wii) wii = true; }
+            if (wii != G.opt.rails) { G.opt.rails = wii; printf("lobby: ON RAILS %s (%s)\n", wii ? "on" : "off", wii ? "Wii remote player in" : "no Wii remote players"); }
+        }
         for (auto& d : G.devs) {
             int pi = -1; for (int i = 0; i < 4; i++) if (G.pl[i].joined && G.pl[i].dev == d.id) pi = i;
             if (pi < 0 && (pr(d, B_A) || pr(d, B_START)) && joinedCount() < 4) { joinPlayer(d.id); continue; }
@@ -2075,7 +2079,7 @@ static void updateMenus(float dt) {
                 if (pr(d, B_X)) { p.invert = !p.invert; AU.play(SND_UI, 0.6f); }
                 if (pr(d, B_Y)) { if (d.hasGyro || d.id == -1) { p.gyro = !p.gyro && d.hasGyro; AU.play(SND_UI, 0.6f); } else AU.play(SND_UI, 0.3f, 0, 0.6f); }
                 if (d.navX) { G.startSel = (G.startSel + d.navX + 3) % 3; AU.play(SND_UI, 0.6f); }
-                if (pr(d, B_BACK) && !d.b[B_START]) { G.opt.rails = !G.opt.rails; AU.play(SND_UI, 0.6f); }
+                if (pr(d, B_BACK) && !d.b[B_START]) { G.opt.rails = !G.opt.rails; G.opt.railsManual = true; AU.play(SND_UI, 0.6f); }
                 if (pr(d, B_LB) || pr(d, B_RB)) { G.startLevel = (G.startLevel + (pr(d, B_RB) ? 1 : 2)) % 3 + 1; AU.play(SND_UI, 0.6f); }
                 if (d.navY && NSHIPS > 1) { p.ship = (p.ship + NSHIPS + (d.navY > 0 ? 1 : -1)) % NSHIPS; AU.play(SND_UI, 0.6f); }
                 if (pr(d, B_START)) startNow = true;
@@ -2321,7 +2325,7 @@ static void testSetup() {
     if (s == "help") { G.state = ST_HELP; return; }
     if (s == "colors") { G.state = ST_COLORS; G.menuSel = getenv("VS_COLSEL") ? atoi(getenv("VS_COLSEL")) : 1; return; }
     for (int i = 0; i < n; i++) { joinPlayer(i == 0 ? -1 : 1000 + i); if (G.bots) G.pl[i].bot = true; }
-    if (getenv("VS_RAILS")) G.opt.rails = atoi(getenv("VS_RAILS")) != 0;   // test: force ON RAILS on/off
+    if (getenv("VS_RAILS")) { G.opt.rails = atoi(getenv("VS_RAILS")) != 0; G.opt.railsManual = true; }   // test: force ON RAILS on/off
     if (s == "lobby") { G.state = ST_LOBBY; return; }
     startGame();
     if (getenv("VS_PHASE")) { std::string ph = getenv("VS_PHASE"); if (ph == "surface") beginPhase(PH_SURFACE); else if (ph == "trench") beginPhase(PH_TRENCH); else if (ph == "tunnel") { G.level = 3; beginPhase(PH_TUNNEL); } else if (ph == "lightspeed") beginPhase(PH_LIGHTSPEED); else if (ph == "turret") { G.level = 2; beginPhase(PH_TURRET); } else if (ph == "tally") beginPhase(PH_TALLY); else if (ph == "escape") beginPhase(PH_ESCAPE); }

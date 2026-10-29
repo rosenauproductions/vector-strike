@@ -18,6 +18,10 @@ Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-d
 - **Shields, the arcade way:** the charges now sit in an arch at the top centre of every view (the arcade shows its shield charges top centre), with the count in the middle. The old blocks at the top right are gone.
   - Colour: green / your colour when healthy, yellow at 2–3, red and flashing on the last one. The segment you just lost flashes white.
   - The objective line and bomber bars moved down under the arch.
+- **Fix (29 Oct ~09:10, deployed, md5 71a17235…):** Chris's first run started ON RAILS with an Xbox pad. `rails=1` had been saved in the cfg by an earlier Wii-remote session and was loaded on every start. ON RAILS is now per session and never loaded:
+  - **In the lobby:** it follows the controllers, on while a Wii remote player is in and off otherwise (`lobby: ON RAILS on/off` in the log).
+  - **Manual toggle:** BACK / - / TAB sets it by hand (`railsManual`) until you go back to the title.
+  - The box's cfg was also set to `rails=0`.
 - Test switches: `VS_COLMODE=0-4`, `VS_STATE=colors` (+ `VS_COLSEL=row`).
 - Soak: 4 bots × 300 s in each colour mode, exit 0.
 
