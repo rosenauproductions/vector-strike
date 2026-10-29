@@ -605,7 +605,7 @@ static void playerFire(Player& p) {
         Enemy& e = G.en[i]; if (e.dead) continue;
         if ((e.kind == EN_FIGHTER || e.kind == EN_PURSUER) && e.state != 4) test(e.p, std::max(6.5f, S_ENEMY * (e.ace ? 1.25f : 1.1f)) * enemyVis(c.p, e.p) * (missile ? 2.6f : 1.f), 1, i);
         else if (e.kind == EN_REACTOR) test(e.p, 30 * shipOf(p).bomb, 1, i);
-        else if (e.kind == EN_TOWER && !e.capDead) test(e.p + V3(0, 3, 0), 7.5f * shipOf(p).bomb, 1, i);
+        else if (e.kind == EN_TOWER && !e.capDead) test(e.p + V3(0, 2.6f, 0), 8.0f * shipOf(p).bomb, 1, i);
         else if (e.kind == EN_TURRET) test(e.p, 5.5f * shipOf(p).bomb, 1, i);
     }
     for (int i = 0; i < (int)G.balls.size(); i++) if (!G.balls[i].dead) test(G.balls[i].p, 5.0f, 2, i);
@@ -1434,9 +1434,10 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
             Col tc = e.capDead ? withA(C_TOWER, 0.45f) : C_TOWER;
             box3(cv, cam, V3(e.p.x - 5, GROUND_Y, e.p.z - 5), V3(e.p.x + 5, e.p.y, e.p.z + 5), tc, 1.2f);
             if (!e.capDead) {
-                V3 t = e.p + V3(0, 3, 0); Col cc = e.flash > 0 ? C_WHITE : COLS[CI_TOWERTOP];
-                V3 q[6] = { t + V3(0, 4, 0), t + V3(-3.5f, 0, 0), t + V3(0, 0, -3.5f), t + V3(3.5f, 0, 0), t + V3(0, 0, 3.5f), t + V3(0, -3, 0) };
-                for (int i = 1; i <= 4; i++) { int j = i % 4 + 1; line3(cv, cam, q[0], q[i], 1.3f, cc); line3(cv, cam, q[5], q[i], 1.3f, cc); line3(cv, cam, q[i], q[j], 1.3f, cc); }
+                // the top: a long flat block sitting across the tower, wider than the tower itself (like the arcade's)
+                Col cc = e.flash > 0 ? C_WHITE : COLS[CI_TOWERTOP]; float y0 = e.p.y + 0.6f, y1 = e.p.y + 4.6f;
+                box3(cv, cam, V3(e.p.x - 8, y0, e.p.z - 3), V3(e.p.x + 8, y1, e.p.z + 3), cc, 1.4f);
+                line3(cv, cam, V3(e.p.x - 8, (y0 + y1) * 0.5f, e.p.z - 3), V3(e.p.x + 8, (y0 + y1) * 0.5f, e.p.z - 3), 1.0f, withA(cc, 0.6f));   // a seam along the face
             }
         } else drawModel(cv, cam, M_TURRET, e.p, V3(-e.side * 1.f, 0, -0.4f), 0, 1.0f, e.flash > 0 ? C_WHITE : COLS[CI_TURRET], 1.3f);
     }

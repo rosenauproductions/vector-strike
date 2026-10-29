@@ -22,6 +22,7 @@ Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-d
   - **In the lobby:** it follows the controllers, on while a Wii remote player is in and off otherwise (`lobby: ON RAILS on/off` in the log).
   - **Manual toggle:** BACK / - / TAB sets it by hand (`railsManual`) until you go back to the title.
   - The box's cfg was also set to `rails=0`.
+- **Tower tops (29 Oct ~09:40, md5 f361503ef9859da7d108d7ed5d5cbbe8, NOT yet deployed: the Mac link dropped):** now a long flat block across the top of each tower (16 wide, 4 tall, 6 deep, a seam along the face), like the arcade's, instead of the diamond. Hit sphere moved to its middle (radius 8).
 - Test switches: `VS_COLMODE=0-4`, `VS_STATE=colors` (+ `VS_COLSEL=row`).
 - Soak: 4 bots × 300 s in each colour mode, exit 0.
 
