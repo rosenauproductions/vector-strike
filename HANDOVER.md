@@ -15,6 +15,12 @@ Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-d
   - At the end, `G.z` = d·P2.x, so the trench run starts exactly where the curve ends, heading down it.
   - The towers stay on screen through the turn: `beginPhase` doesn't clear `G.en` for PH_TURNIN.
 - Removed the old straight-in trench entrance drawing, and the stray surface grid at trench-floor height at the start of the trench.
+- **Canyon edge fades out** (Chris: no hard cut where the canyon detail ends; latest md5 487651decd6e054112ae5b22b4fb8d65). `drawTrench` now echoes the edge detail outward on both sides:
+  - 5 close lines in the trench colour, fading within about 60;
+  - 7 wider lines spreading out to about 530 and blending from the trench colour to the ground colour;
+  - cross ribs thinning out in 4 steps to 470 from the lip;
+  - a few low plates near the edge, fading by distance.
+  The same applies in the trench run, where only the near part shows.
 - Test switch `VS_SURFLEN=n` (short tower field).
 - **Soak** (1 / 2 / 4 bots, 400 s): every run turned into the trench. 2–3 trench hits, no pulling up out of the trench; port hit with 2 and 4 bots.
 

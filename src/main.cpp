@@ -1334,14 +1334,26 @@ static void drawTrench(Canvas& cv, const Cam& cam, float zc, float z0, float zEn
         line3(cv, cam, V3(s * TR_W, TR_FLOOR, zf), V3(s * TR_W, TR_FLOOR, zt), 1.3f, tc);
         line3(cv, cam, V3(s * TR_W, -14, zf), V3(s * TR_W, -14, zt), 1.0f, dim, 0.4f);
         line3(cv, cam, V3(s * TR_W, -28, zf), V3(s * TR_W, -28, zt), 1.0f, dim, 0.4f);
-        for (int k = 1; k <= 3; k++) line3(cv, cam, V3(s * (TR_W + k * 45.f), 0, zf), V3(s * (TR_W + k * 45.f), 0, zt), 1.0f, withA(C_GROUND, 0.5f), 0.3f);
+        // surface lines alongside the canyon: they echo outward, spreading and fading, so the edge detail melts into the plain surface
+        // close in: echoes of the canyon's own panel lines (its colour), tightly spaced, fading out within ~60
+        for (int k = 1; k <= 5; k++) { float off = TR_W + 5 + 4.f * std::pow((float)k, 1.6f), a = 0.55f * std::pow(0.72f, (float)k);
+            line3(cv, cam, V3(s * off, 0.02f, zf), V3(s * off, 0.02f, zt), 1.0f, withA(C_TRENCH, a), 0.3f); }
+        // further out: wider surface lines blending from the canyon's colour to the ground's, spreading and fading
+        for (int k = 1; k <= 7; k++) { float off = TR_W + 45.f * k * (1 + 0.18f * (k - 1)), a = 0.5f * std::pow(0.7f, (float)(k - 1));
+            line3(cv, cam, V3(s * off, 0, zf), V3(s * off, 0, zt), 1.0f, withA(mixc(C_TRENCH, C_GROUND, std::min(1.f, k / 4.f)), a), 0.3f * a * 2); }
     }
     float r0 = std::ceil(zf / 50) * 50;
     for (float zz = r0; zz < zt; zz += 50) {
         int ri = (int)(zz / 50); bool major = ri % 4 == 0; Col c = major ? tc : dim;
         V3 a(-TR_W, 0, zz), b(-TR_W, TR_FLOOR, zz), d(TR_W, TR_FLOOR, zz), e(TR_W, 0, zz);
         line3(cv, cam, a, b, 1.1f, c, major ? 1 : 0.4f); line3(cv, cam, b, d, 1.1f, c, major ? 1 : 0.4f); line3(cv, cam, d, e, 1.1f, c, major ? 1 : 0.4f);
-        if (major) { line3(cv, cam, V3(-TR_W - 135, 0, zz), V3(-TR_W, 0, zz), 1.0f, withA(C_GROUND, 0.5f), 0.3f); line3(cv, cam, V3(TR_W, 0, zz), V3(TR_W + 135, 0, zz), 1.0f, withA(C_GROUND, 0.5f), 0.3f); }
+        if (major) for (int s2 = -1; s2 <= 1; s2 += 2) {   // cross ribs out from the lip, thinning out in steps
+            const float seg[5] = { 0, 135, 230, 340, 470 }, al[4] = { 0.5f, 0.3f, 0.17f, 0.08f };
+            for (int q = 0; q < 4; q++) line3(cv, cam, V3(s2 * (TR_W + seg[q]), 0, zz), V3(s2 * (TR_W + seg[q + 1]), 0, zz), 1.0f, withA(mixc(C_TRENCH, C_GROUND, q / 2.f > 1 ? 1.f : q / 2.f), al[q]), 0.3f * al[q] * 2);
+            uint32_t hg = hash2(ri, 11 + s2);   // a low plate or two near the edge, fainter further out
+            for (int g = 0; g < 2; g++) { uint32_t hq = hg >> (g * 12); float dx = 25 + (hq & 255) * 1.4f, w = 6 + (hq >> 8 & 7), d = 8 + (hq >> 4 & 15), hh = 1.5f + (hq >> 2 & 3), a = 0.45f * clampf(1 - dx / 380, 0, 1);
+                if (a > 0.03f) box3(cv, cam, V3(s2 * (TR_W + dx) - w, 0, zz + 12 - d), V3(s2 * (TR_W + dx) + w, hh, zz + 12 + d), withA(mixc(C_TRENCH, C_GROUND, clampf(dx / 200, 0, 1)), a), 1.0f); }
+        }
         uint32_t h = hash2(ri, 3);
         if (TRENCH_TILE > 0 && G.opt.trench > 0) continue;   // the model's panels replace the random wall boxes
         if (h & 1) { int s = (h & 2) ? 1 : -1; float y = -6 - (h >> 4 & 31); float dz = 10 + (h >> 10 & 15); float hy = 3 + (h >> 16 & 3);
