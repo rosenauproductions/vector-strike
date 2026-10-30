@@ -1,0 +1,30 @@
+# Builds the Android TV app (.apk) on GitHub's machines, which have the Android SDK and NDK.
+# Download it from the run's page: Actions > Android TV APK > the latest run > Artifacts > VectorStrike-AndroidTV.
+name: Android TV APK
+on:
+  push:
+    paths: ['src/**', 'android/**', 'modelpack/**', '.github/workflows/android-tv.yml']
+  workflow_dispatch: {}
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.7' }
+      - name: Fetch SDL2 and the model pack
+        run: |
+          curl -sL https://github.com/libsdl-org/SDL/releases/download/release-2.30.12/SDL2-2.30.12.tar.gz | tar xz
+          mv SDL2-2.30.12 android/app/jni/SDL
+          mkdir -p android/app/src/main/java/org/libsdl
+          cp -r android/app/jni/SDL/android-project/app/src/main/java/org/libsdl/app android/app/src/main/java/org/libsdl/
+          mkdir -p android-assets && cp -r modelpack android-assets/
+      - name: Build
+        working-directory: android
+        run: gradle assembleDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VectorStrike-AndroidTV
+          path: android/app/build/outputs/apk/debug/*.apk

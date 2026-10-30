@@ -2,14 +2,20 @@
 // Each wave: dogfight the interceptors, strafe the surface towers, then run the trench and hit the exhaust port.
 #include "gfx.h"
 #include "audio.h"
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
+#define VS_NO_WII 1   // web and Android TV builds: no raw-Bluetooth Wii driver; pads, remote, keyboard and mouse only
+#endif
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
-struct Wiimote;   // web build: no Bluetooth Wii driver (browsers can't open raw Bluetooth); pads, keyboard and mouse only
+#endif
+#ifdef VS_NO_WII
+struct Wiimote;
 #else
 #include "wii/manager.h"
 #include "wii/sim.h"
 #endif
 #include <memory>
+#include <sys/stat.h>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -1929,7 +1935,7 @@ static int navAxis(Dev& d, int axis, float dt) {
 // ---------------------------------------------------------------- Wii remotes (src/wii = the Wii Lab driver)
 // Dolphin-style: the game runs its own Bluetooth search (menus/pause only - searching adds lag) and talks to each
 // remote over raw L2CAP. Forget the remotes in Batocera's Bluetooth settings first, then press 1+2 (or red sync).
-#ifndef __EMSCRIPTEN__
+#ifndef VS_NO_WII
 static Manager WII; static bool WII_ON = false;
 static std::map<std::string, int> WII_IDS;   // mac -> stable device id, so a remote that drops comes back as the same player
 static void wiiRumble(int devId, int ms) { Dev* d = devById(devId); if (WII_ON && d && d->wii) WII.act("rumble", d->mac, ms); }
@@ -2009,22 +2015,24 @@ static void wiiStop() {}
 static void wiiSync(bool) {}
 static void wiiRead(Dev&, float, bool) {}
 #endif
+static bool TV_BACK = false;
 static void readDevs(float dt, bool inGame) {
     int mx, my; Uint32 mb = SDL_GetMouseState(&mx, &my);
     for (auto& d : G.devs) {
         memcpy(d.pb, d.b, sizeof d.b); memset(d.b, 0, sizeof d.b); d.mv = V2(); d.rs = V2(); d.tl = d.tr = 0;
         if (d.id == -1) {
             const Uint8* k = SDL_GetKeyboardState(nullptr);
+            bool esc = k[SDL_SCANCODE_ESCAPE] || k[SDL_SCANCODE_AC_BACK] || TV_BACK;   // TV remotes: Android TV's BACK key, Samsung Tizen's Back (from the page)
             if (k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP]) { d.mv.y -= 1; d.b[B_UP] = true; }
             if (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN]) { d.mv.y += 1; d.b[B_DOWN] = true; }
             if (k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT]) { d.mv.x -= 1; d.b[B_LEFT] = true; }
             if (k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT]) { d.mv.x += 1; d.b[B_RIGHT] = true; }
             if (k[SDL_SCANCODE_J]) d.rs.x -= 1; if (k[SDL_SCANCODE_L]) d.rs.x += 1; if (k[SDL_SCANCODE_K]) d.rs.y += 1; if (k[SDL_SCANCODE_U]) d.rs.y -= 1;   // glance keys
             d.ml = (mb & SDL_BUTTON_LMASK) != 0;
-            d.b[B_A] = k[SDL_SCANCODE_SPACE] || (!inGame && (k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_KP_ENTER])) || d.ml;
-            d.b[B_B] = k[SDL_SCANCODE_BACKSPACE] || (!inGame && k[SDL_SCANCODE_ESCAPE]);
+            d.b[B_A] = k[SDL_SCANCODE_SPACE] || k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_KP_ENTER] || k[SDL_SCANCODE_SELECT] || d.ml;   // Enter / the remote's OK also fire in game
+            d.b[B_B] = k[SDL_SCANCODE_BACKSPACE] || (!inGame && esc);
             d.b[B_X] = k[SDL_SCANCODE_I] || k[SDL_SCANCODE_R]; d.b[B_Y] = k[SDL_SCANCODE_G] || k[SDL_SCANCODE_V];
-            d.b[B_START] = (inGame && k[SDL_SCANCODE_ESCAPE]) || k[SDL_SCANCODE_P] || (!inGame && (k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_KP_ENTER]));
+            d.b[B_START] = (inGame && esc) || k[SDL_SCANCODE_P] || k[SDL_SCANCODE_AUDIOPLAY] || (!inGame && (k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_KP_ENTER]));
             d.b[B_BACK] = k[SDL_SCANCODE_TAB]; d.b[B_LB] = k[SDL_SCANCODE_1]; d.b[B_RB] = k[SDL_SCANCODE_2];   // 1 / 2 = LB / RB (lobby level)
             d.tr = k[SDL_SCANCODE_E] ? 1.f : 0.f; d.tl = k[SDL_SCANCODE_Q] ? 1.f : 0.f;
             int ww, wh; SDL_GetWindowSize(G.win, &ww, &wh);
@@ -2474,6 +2482,24 @@ static int gameMain() {
     const char* home = getenv("VS_HOME"); char* base = SDL_GetBasePath();
     G.dir = home ? std::string(home) + "/" : (base ? base : "./"); if (base) SDL_free(base);
     G.cfgPath = G.dir + "vectorstrike.cfg";
+#ifdef __ANDROID__
+    {   // Android TV: the model pack ships inside the APK (assets/modelpack); copy it out to the app's own storage the
+        // first time, then the game reads it like any other folder. Settings and scores live there too.
+        SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");   // the remote's BACK pauses / goes back instead of closing the app
+        const char* ip = SDL_AndroidGetInternalStoragePath(); G.dir = std::string(ip ? ip : ".") + "/"; G.cfgPath = G.dir + "vectorstrike.cfg";
+        std::string md = G.dir + "modelpack/"; mkdir(md.c_str(), 0755);
+        static const char* PACK[] = { "player", "enemy", "cockpit", "ywing", "arwing", "atat", "speeder", "probe", "hturret", "bwing", "bwing_ck", "falcon", "destroyer", "ace",
+            "player_far", "enemy_far", "ywing_far", "bwing_far", "falcon_far", "destroyer_far", "ace_far", "trench", "station" };
+        int copied = 0;
+        for (const char* n : PACK) {
+            std::string dst = md + n + ".vsm"; FILE* t = fopen(dst.c_str(), "r"); if (t) { fclose(t); continue; }
+            SDL_RWops* rw = SDL_RWFromFile((std::string("modelpack/") + n + ".vsm").c_str(), "rb"); if (!rw) continue;
+            Sint64 sz = SDL_RWsize(rw); std::vector<char> buf(sz > 0 ? (size_t)sz : 0); if (sz > 0) SDL_RWread(rw, buf.data(), 1, (size_t)sz); SDL_RWclose(rw);
+            FILE* o = fopen(dst.c_str(), "wb"); if (o) { fwrite(buf.data(), 1, buf.size(), o); fclose(o); copied++; }
+        }
+        printf("android: data in %s (%d model files copied from the APK)\n", G.dir.c_str(), copied);
+    }
+#endif
 #ifdef __EMSCRIPTEN__
     G.cfgPath = "/save/vectorstrike.cfg";   // the page mounts /save (IndexedDB) so scores and options survive a reload
 #endif
@@ -2541,5 +2567,6 @@ static int gameMain() {
 }
 int main(int, char**) { return gameMain(); }
 #ifdef __EMSCRIPTEN__
+extern "C" EMSCRIPTEN_KEEPALIVE void vs_tvkey(int key, int down) { if (key == 0) TV_BACK = down != 0; }   // Samsung TV page: remote keys SDL doesn't know (0 = Back)
 extern "C" EMSCRIPTEN_KEEPALIVE void vs_start() { gameMain(); }   // the web page calls this on the first click (browsers only allow sound after one)
 #endif

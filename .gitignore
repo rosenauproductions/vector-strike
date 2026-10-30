@@ -5,3 +5,9 @@ __pycache__/
 board.md
 vector-strike-handover.md
 vector-strike-source-bundle.txt
+tizen/*.zip
+android/.gradle/
+android/app/build/
+android/app/jni/SDL/
+android/app/src/main/java/org/
+android-assets/

@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.6)
+project(VectorStrike)
+# SDL2 (fetched into jni/SDL by the workflow) builds libSDL2.so; the game is libmain.so, which SDLActivity loads.
+set(SDL_SHARED ON CACHE BOOL "" FORCE)
+set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+add_subdirectory(SDL)
+set(GAME_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../../../src)
+add_library(main SHARED ${GAME_SRC}/main.cpp)
+target_include_directories(main PRIVATE ${GAME_SRC} ${CMAKE_CURRENT_SOURCE_DIR}/SDL/include)
+target_compile_options(main PRIVATE -O2 -Wno-unused-function -Wno-misleading-indentation)
+target_link_libraries(main SDL2 GLESv2 log android)

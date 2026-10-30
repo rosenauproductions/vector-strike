@@ -5,6 +5,20 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## TV builds (30 Oct, Cowork session): Samsung Tizen app + Android TV app
+Details and install steps are in `docs/TV_BUILDS.md`. The Batocera binary is unchanged apart from these input tweaks:
+- Enter / OK now fires in a game.
+- The `AC_BACK` and Play keys count as Esc and pause.
+- The Wii driver is compiled out on Android too (`VS_NO_WII`).
+- **Samsung QN75Q80TAFXZA (Tizen 5.5):**
+  - `./build_tizen.sh` → `tizen/app/`, a Tizen web project with everything inlined in one 6 MB `vectorstrike.js`. The remote's Back key is passed in via `vs_tvkey`.
+  - Tested in Chromium from `file://`: menus, flying and firing with arrow keys and OK, and Back all work.
+  - Needs Chris's Samsung certificate and Tizen Studio to sign and install. Not run on the TV yet.
+- **Android TV:**
+  - `android/` gradle project on SDL 2.30.12, built by `.github/workflows/android-tv.yml`. The artifact is the APK.
+  - First run not seen yet, since the session can't read Actions.
+- `web/dist` rebuilt from the current code (it was v18). Emscripten recipe as in WEB_BUILD.md: apt emscripten 3.1.6 + SDL2 2.0.20 local port.
+
 **29 Oct ~12:40: installed on ARCADE-21** (md5 bee9d0fa2ccc3dc2b44ee80a864ea443 verified on the share, no backup). That build has everything through the rim towers: v20 tower tops, v21 canyon crossing + turn-in + edge fade, rim towers.
 
 ## v21 (29 Oct, Cowork session) — the canyon crosses the tower field; railed turn-in (md5 f40bfc416e6585904aef7e1ab3fbf2f4)
