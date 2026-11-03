@@ -298,6 +298,7 @@ struct Player {
     float inv = 0, hitT = 0, shake = 0, downT = 0, bank = 0, pitchExtra = 0, botFire = 0; int score = 0, kills = 0, ballsShot = 0;
     V3 pos, fwd = V3(0, 0, 1), up = V3(0, 1, 0); float speed = 110, thr = 0;   // open-space flight
     int ship = 0;   // SHIPS index (lobby Up/Down)
+    bool onTarget = false; float targetT = 0;   // sight on an enemy: the lock-on beep
     V2 glance; Cam aimCam;   // right-stick glance (eased), the camera before the glance (what the guns use)
     bool tkShell = false; float crackT = 0; int cable = -1; float cableAng = 0, cableSum = 0;   // tank mode / ice planet tow cable
     float rollT = 0, charge = 0; int rollDir = 1, foxHits = 0; bool botRoll = false;   // Star Fox mode: barrel roll, charge shot
@@ -643,7 +644,7 @@ static void playerFire(Player& p) {
     V3 rt, up; basisFrom(isSpace() ? p.fwd : V3(0, 0, 1), 0, rt, up); if (isSpace()) { rt = norm3(cross3(p.up, p.fwd)); up = cross3(p.fwd, rt); }
     V3 ship = ppos(p), fw = isSpace() ? p.fwd : V3(0, 0, 1);
     if (G.phase == PH_TURRET && p.turret >= 2) {   // cockpit crew: the forward guns on the mandibles, or a missile from under the cockpit
-        if (missile) { G.bolts.push_back({ G.falP + V3(0.6f, -0.06f, 0.8f) * FAL_S, end, 0.42f, 0.42f, Col(255, 170, 60), p.idx, 0, 9 }); AU.play(SND_BALL, 0.7f); }
+        if (missile) { AU.play(SND_TORPEDO, 0.7f); G.bolts.push_back({ G.falP + V3(0.6f, -0.06f, 0.8f) * FAL_S, end, 0.42f, 0.42f, Col(255, 170, 60), p.idx, 0, 9 }); AU.play(SND_BALL, 0.7f); }
         else for (int sx = -1; sx <= 1; sx += 2) G.bolts.push_back({ G.falP + V3(sx < 0 ? -0.3f : 0.28f, 0.0f, 1.0f) * FAL_S, end, 0.16f, 0.16f, COLS[CI_LASER], p.idx, sx, 0 });
     } else
     for (int sx = -1; sx <= 1; sx += 2) for (int sy = -1; sy <= 1; sy += 2) {
@@ -682,7 +683,7 @@ static void playerFire(Player& p) {
         G.flashes.push_back({ b.p, 0.25f, 0.25f, 6, C_BALL, false }); for (int k = 0; k < 6; k++) { Frag f; f.p = b.p; f.v = b.v * 0.5f + rndDir() * 40; f.d = rndDir() * 1.2f; f.life = f.max = 0.4f; f.c = C_BALL; G.frags.push_back(f); }
         AU.play(SND_BALLHIT, 0.55f);
     } else if (type == 3) {
-        G.portHit = true; G.portBy = p.idx; p.score += 5000;
+        G.portHit = true; G.portBy = p.idx; p.score += 5000; AU.play(SND_TORPEDO, 1.0f);
         V3 pp = portPos(); for (int k = 0; k < 4; k++) explode3(pp + V3(R.range(-6, 6), 2, R.range(-6, 6)), 9, C_PORT);
         printf("game: P%d hit the exhaust port on wave %d\n", p.idx + 1, G.wave);
         beginPhase(PH_ESCAPE);
@@ -1139,6 +1140,13 @@ static void updatePlayer(Player& p, float dt) {
         }
     }
     if (!p.bot) { Dev* dv = devById(p.dev); if (dv && pr(*dv, B_Y)) { p.third = !p.third; AU.play(SND_UI, 0.5f); } }
+    if (!p.bot && G.phase != PH_TANK && G.phase != PH_HOTH) {   // sight on an enemy: the targeting beep, once per new target
+        V2 cc(p.vp.x + p.vp.w * 0.5f, p.vp.y + p.vp.h * 0.5f); cc = cc + crossOff(p); float rr = p.vp.h * 0.045f; bool on = false;
+        for (auto& e : G.en) if (!e.dead && (e.kind == EN_FIGHTER || e.kind == EN_PURSUER) && e.state != 4) { V2 sp; float z; if (p.aimCam.proj(e.p, sp, z) && z < 900 && dist(sp, cc) < rr + 900 / z) { on = true; break; } }
+        p.targetT = std::max(0.f, p.targetT - dt);
+        if (on && !p.onTarget && p.targetT <= 0) { AU.play(SND_TARGET, 0.55f, clampf((p.vp.x + p.vp.w * 0.5f) / G.W * 2 - 1, -0.5f, 0.5f), 1, 120); p.targetT = 0.35f; }
+        p.onTarget = on;
+    }
     if (getenv("VS_AUTOFIRE")) fire = true;   // test switch
     p.aim.x = clampf(p.aim.x, -1, 1); p.aim.y = clampf(p.aim.y, -1, 1);
     // ON RAILS (lobby toggle, on by default once a Wii remote joins): the autopilot flies the ship - the bots' pilot -
@@ -2466,6 +2474,13 @@ static void mainTick() {
         if (benchN && G.frame == 10) benchT0 = SDL_GetPerformanceCounter();
         if (benchN && G.frame == 10 + benchN) { double s = (double)(SDL_GetPerformanceCounter() - benchT0) / SDL_GetPerformanceFrequency(); printf("bench: %d frames in %.2fs = %.1f fps\n", benchN, s, benchN / s); G.quit = true; }
         bool shot = G.shotFrame >= 0 && G.frame == G.shotFrame;
+        {   // engine hum while flying (cockpit / chase), pitched by speed; quiet in menus, paused and on foot
+            float vol = 0, rate = 1; int n = 0;
+            bool flying = G.state == ST_GAME && !G.paused && !G.over && G.phase != PH_TALLY && G.phase != PH_TANK && G.phase != PH_TURRET;
+            if (flying) for (auto& p : G.pl) if (p.joined && !p.bot && !p.down) { float sp = isSpace() || freeGround() ? p.speed : G.speed; rate += sp / 150.f; n++; }
+            if (n) { rate = 0.7f + 0.3f * (rate - 1) / n; vol = 0.32f; }
+            AU.engine(vol, rate);
+        }
         renderFrame(shot);
         if (shot) G.quit = true;
 #ifdef __EMSCRIPTEN__

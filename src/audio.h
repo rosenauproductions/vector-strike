@@ -9,10 +9,11 @@
 #include "gfx.h"
 
 enum Snd { SND_LASER, SND_BOOM_S, SND_BOOM_L, SND_BALL, SND_BALLHIT, SND_SHIELD, SND_ALARM, SND_UI, SND_UI_OK,
-           SND_PORT, SND_WAVE, SND_LOSE, SND_DOWN, SND_BANNER, SND_TOWER, SND_TIEFLY, SND_TIELASER, SND_N };
+           SND_PORT, SND_WAVE, SND_LOSE, SND_DOWN, SND_BANNER, SND_TOWER, SND_TIEFLY, SND_TIELASER, SND_TORPEDO, SND_TARGET, SND_ENGINE, SND_N };
 // file names for the optional sound pack: <game folder>/sounds/<name>.wav replaces the built-in sound
 static const char* SND_NAMES[SND_N] = { "laser", "boom_small", "boom_big", "fireball", "fireball_hit", "shield_hit", "alarm", "ui", "ui_ok",
-                                        "port_hit", "wave_clear", "game_over", "player_down", "banner", "tower_hit", "enemy_flyby", "enemy_laser" };
+                                        "port_hit", "wave_clear", "game_over", "player_down", "banner", "tower_hit", "enemy_flyby", "enemy_laser",
+                                        "torpedo", "target", "engine" };   // torpedo: shot at the exhaust port / missiles; target: sight on an enemy; engine: cockpit hum (loops)
 
 struct Audio {
     static const int RATE = 44100;
@@ -24,6 +25,7 @@ struct Audio {
     float sfxVol = 0.8f, musVol = 0.5f;
     Uint32 lastPlay[SND_N] = {};
     bool musicOn = false; double mpos = 0; std::string musicSrc = "built-in";
+    double loopPos = 0; float loopVol = 0, loopRate = 1, loopVolCur = 0;   // the engine hum: one looping voice, set every frame by the game
 
     static float sq(float ph) { return std::sin(ph) >= 0 ? 1.f : -1.f; }
     std::vector<float> gen(float dur, float (*f)(float t, Rng& r, float& st)) {
@@ -65,6 +67,9 @@ struct Audio {
         snd[SND_BANNER] = gen(0.45f, [](float t, Rng&, float& ph) { float f = 300 + 1500 * t / 0.45f; ph += 2 * PI * f / RATE; return std::sin(ph) * 0.22f * std::min(1.f, (0.45f - t) * 10); });
         snd[SND_TOWER] = gen(0.5f, [](float t, Rng& r, float& lp) { lp += (r.range(-1, 1) - lp) * 0.2f; return (lp * 1.5f + std::sin(2 * PI * 140 * t) * 0.4f) * std::exp(-t * 7) * 0.55f; });
         auto normTo = [&](int i, float pk) { float m = 0; for (float v : snd[i]) m = std::max(m, std::fabs(v)); if (m > 1e-6f) for (float& v : snd[i]) v *= pk / m; };
+        snd[SND_TORPEDO] = gen(0.8f, [](float t, Rng& r, float& lp) { lp += (r.range(-1, 1) - lp) * (0.3f * std::exp(-t * 3) + 0.03f); float f = 900 * std::exp(-t * 4) + 90; return (lp * 1.6f + std::sin(2 * PI * f * t) * 0.35f) * std::min(1.f, t * 60) * std::exp(-t * 3.5f) * 0.5f; });
+        snd[SND_TARGET] = gen(0.18f, [](float t, Rng&, float&) { return sq(2 * PI * 1380 * t) * 0.12f * (std::fmod(t, 0.09f) < 0.06f ? 1.f : 0.f); });
+        snd[SND_ENGINE] = gen(2.0f, [](float t, Rng& r, float& lp) { lp += (r.range(-1, 1) - lp) * 0.02f; float w = std::sin(2 * PI * 0.5f * t); return (lp * 2.5f + std::sin(2 * PI * 70 * t) * 0.15f + std::sin(2 * PI * 140 * t) * 0.06f) * (0.8f + 0.2f * w) * 0.35f; });
         normTo(SND_TIEFLY, 0.6f); normTo(SND_TIELASER, 0.42f);
         buildMusic();
     }
@@ -151,6 +156,11 @@ struct Audio {
             }
             if (done) { a->inst[k] = a->inst.back(); a->inst.pop_back(); } else k++;
         }
+        { const std::vector<float>& s = a->snd[SND_ENGINE]; int n = (int)s.size();   // engine hum, looped, eased in / out
+          if (n > 64) for (int i = 0; i < frames; i++) {
+              a->loopVolCur += (a->loopVol - a->loopVolCur) * 0.0004f; if (a->loopVolCur < 0.0005f && a->loopVol == 0) break;
+              int p = (int)a->loopPos; float v = s[p % n] * a->loopVolCur * a->sfxVol; out[i * 2] += v; out[i * 2 + 1] += v;
+              a->loopPos += a->loopRate; if (a->loopPos >= n) a->loopPos -= n; } }
         for (int i = 0; i < frames * 2; i++) { float v = out[i]; out[i] = v / (1 + std::fabs(v) * 0.6f); }
     }
     bool open(const std::string& dir) {
@@ -173,5 +183,6 @@ struct Audio {
         if (inst.size() < 48) inst.push_back({ s, 0.0, pitch, vol, clampf(pan, -1, 1) });
         SDL_UnlockAudioDevice(dev);
     }
+    void engine(float vol, float rate) { loopVol = vol; loopRate = clampf(rate, 0.5f, 2.0f); }   // no lock: plain floats read by the callback
     void close() { if (dev) SDL_CloseAudioDevice(dev); dev = 0; }
 };

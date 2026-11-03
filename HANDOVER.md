@@ -5,6 +5,28 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v23 (3 Nov, Cowork session): Chris's Star Wars sound pack + engine hum, torpedo, lock-on beep (md5 661e9d3c498668535f4bfeec75d31cf6)
+- **New sound slots** (`audio.h`; each has a synthesized default, and a sound-pack wav replaces it):
+  - `torpedo`: plays when you hit the exhaust port, and for the Falcon co-pilot's missiles.
+  - `target`: a beep when your sight moves onto a fighter or pursuer, once per new target, at most every 0.35 s.
+  - `engine`: one looping voice that eases in and out. It plays while a human is flying (not paused, not in the tank or the turret), pitched by speed: 0.7 + 0.3 × speed / 150.
+- **Chris's 11 wavs** (8-bit 11 kHz) became `sounds/*.wav`: normalised, 16-bit, and the engine loops crossfaded at the seam.
+
+  | Chris's file | Sound slot |
+  |---|---|
+  | xwing_gun | laser |
+  | Tie_Shoot | enemy_laser |
+  | empire_lazer | fireball |
+  | WARNING2 | alarm |
+  | SETTINGS | ui |
+  | TARGET4 | ui_ok |
+  | TARGET5 (= TARGET5_1, identical) | target |
+  | xwing_proton_torpedos | torpedo |
+  | xwing_inside_cockpit_engine_noise | engine |
+  | tie_fighter_inside_engine_noise | engine_tie (Chris: the noise you hear piloting a TIE; nothing uses it yet, no TIE is flyable) |
+- **The pack is NOT in git** (`sounds_pack/` is ignored, and the repo is public). It lives on the box in `roms/ports/vectorstrike/sounds/`. To rebuild it, use Chris's original files from the 3 Nov chat.
+- The pack loads in the game: every file shows an `audio: <name> from ./sounds/...` log line.
+
 ## TV builds (30 Oct, Cowork session): Samsung Tizen app + Android TV app
 Details and install steps are in `docs/TV_BUILDS.md`. The Batocera binary is unchanged apart from these input tweaks:
 - Enter / OK now fires in a game.
