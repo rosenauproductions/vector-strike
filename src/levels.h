@@ -70,7 +70,7 @@ static void updatePursuers(float dt) {
         Player& T = G.pl[e.tgt];
         // every few seconds one surges past and hangs out in front of you for a moment: shoot it
         e.passT -= dt;
-        if (e.state == 0 && e.passT <= 0 && e.p.z > G.z + T.zoff - e.h - 30) { e.state = 5; e.hide = e.ace ? 2.0f : 2.6f; AU.play(SND_TIEFLY, 0.9f, e.side * 0.3f, 1.1f, 250); printf("game: pursuer%s surges ahead of P%d\n", e.ace ? " (ace)" : "", T.idx + 1); }
+        if (e.state == 0 && e.passT <= 0 && e.p.z > G.z + T.zoff - e.h - 30) { e.state = 5; e.hide = e.ace ? 2.0f : 2.6f; AU.play3(SND_TIEFLY, e.p, V3(0, 0, G.speed * 1.4f), 1.0f, 1.1f, 250, 200); printf("game: pursuer%s surges ahead of P%d\n", e.ace ? " (ace)" : "", T.idx + 1); }
         if (e.state == 5) {
             e.hide -= dt;
             if (e.hide <= 0) { e.state = 0; e.passT = R.range(5.f, 8.f); }
@@ -117,7 +117,7 @@ static void updateTrenchChase(float dt) {
         for (auto& e : G.en) if (!e.dead && e.kind == EN_PURSUER && e.state != 4) {
             if (!e.ace && A.cd <= 0 && t > 1.2f) {
                 A.cd = 0.7f; G.bolts.push_back({ A.p, e.p, 0.25f, 0.25f, Col(255, 120, 70), 9, 0, 0 });
-                e.dead = true; explode3(e.p, 6, C_ENEMY, V3(0, 0, G.speed)); AU.play(SND_BOOM_S, 0.8f); break;
+                e.dead = true; explode3(e.p, 6, C_ENEMY, V3(0, 0, G.speed)); AU.play3(SND_BOOM_S, e.p, V3(0, 0, G.speed), 1.0f, 1, 30, 220); break;
             }
         }
         bool wing = false; for (auto& e : G.en) if (!e.dead && e.kind == EN_PURSUER && !e.ace) wing = true;
@@ -204,7 +204,7 @@ static void updateRocks(float dt) {
             if (e.ace) { if (L < k.r + 50) e.v = norm3(e.v + d * (1 / std::max(1.f, L)) * 2) * len3(e.v); continue; }
             if (e.weave > 3.5f && L < k.r + 35) { e.v = norm3(e.v + d * (1 / std::max(1.f, L))) * len3(e.v); continue; }   // the careful ones swerve
             if (L < k.r * 0.9f + 4) {
-                e.dead = true; G.killsDone++; explode3(e.p, 5, C_ENEMY, k.v); AU.play(SND_BOOM_S, 0.7f);
+                e.dead = true; G.killsDone++; explode3(e.p, 5, C_ENEMY, k.v); AU.play3(SND_BOOM_S, e.p, k.v, 0.9f, 1, 30, 220);
                 if (e.state == 3 && G.pl[e.tgt].joined) pmsg(G.pl[e.tgt], "IT HIT A ROCK");
                 printf("game: an interceptor hit an asteroid\n"); break;
             }
@@ -524,7 +524,7 @@ static int escortsAlive() { int n = 0; for (auto& e : G.esc) if (e.alive && !e.g
 static int ESC_HITS = 0;
 static void escortHit(int i) {
     auto& e = G.esc[i]; if (!e.alive) return; e.hp -= 1; e.flash = 0.15f; ESC_HITS++;
-    if (e.hp <= 0) { e.alive = false; explode3(e.p, 8, Col(255, 230, 160), e.f * 60); AU.play(SND_BOOM_L, 0.8f); setBanner("WE LOST A BOMBER", escortsAlive() ? "PROTECT THE OTHER ONE" : "BOTH BOMBERS GONE", 2.5f); printf("game: bomber %d shot down\n", i + 1); }
+    if (e.hp <= 0) { e.alive = false; explode3(e.p, 8, Col(255, 230, 160), e.f * 60); AU.play3(SND_BOOM_L, e.p, e.f * 150, 1.0f, 1, 30, 400); setBanner("WE LOST A BOMBER", escortsAlive() ? "PROTECT THE OTHER ONE" : "BOTH BOMBERS GONE", 2.5f); printf("game: bomber %d shot down\n", i + 1); }
 }
 // fighters that go after a bomber instead of you: returns the bomber index, or -1
 static int escortTargetOf(const Enemy& e) {
@@ -558,7 +558,7 @@ static void updateEscortRun(float dt) {
         if (e.cd <= 0) {   // tail gunners: shoot at the nearest interceptor
             e.cd = R.range(0.6f, 1.1f); float bd = 500; Enemy* tg = nullptr;
             for (auto& f : G.en) if (!f.dead && f.kind == EN_FIGHTER && !f.ace) { float d = len3(f.p - e.p); if (d < bd) { bd = d; tg = &f; } }
-            if (tg) { G.bolts.push_back({ e.p, tg->p, 0.2f, 0.2f, Col(255, 120, 70), 9, 0, 0 }); if (R.f() < 0.1f) { tg->dead = true; G.killsDone++; explode3(tg->p, 5, C_ENEMY, tg->v * 0.5f); AU.play(SND_BOOM_S, 0.5f); } }
+            if (tg) { G.bolts.push_back({ e.p, tg->p, 0.2f, 0.2f, Col(255, 120, 70), 9, 0, 0 }); if (R.f() < 0.1f) { tg->dead = true; G.killsDone++; explode3(tg->p, 5, C_ENEMY, tg->v * 0.5f); AU.play3(SND_BOOM_S, tg->p, tg->v * 0.5f, 0.9f, 1, 30, 220); } }
         }
     }
     if (G.escStage == 0) {   // the interceptors come in waves

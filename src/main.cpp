@@ -432,8 +432,8 @@ static void fireBall(V3 from, int tgt, float spdMul = 1, V3 aimOff = V3()) {   /
         b.v = rel * (1 / tz) + V3(0, 0, G.speed); b.life = tz + 2.5f;   // reaches the player's slot as the squad flies on
     }
     G.balls.push_back(b);
-    if (isSpace()) { float d = len3(from - squadCenter()); AU.play(SND_TIELASER, clampf(1.1f - d / 900, 0.15f, 0.8f), R.range(-0.5f, 0.5f), R.range(0.92f, 1.08f), 50); }
-    else AU.play(SND_BALL, 0.35f, clampf(from.x / 120, -0.6f, 0.6f), R.range(0.9f, 1.1f), 60);
+    if (isSpace()) AU.play3(SND_TIELASER, from, b.v, 0.9f, R.range(0.92f, 1.08f), 50, 260);
+    else AU.play3(SND_BALL, from, V3(), 0.5f, R.range(0.9f, 1.1f), 60, 220);
 }
 
 // ---------------------------------------------------------------- phases
@@ -613,7 +613,7 @@ static Dev* devById(int id); static bool pr(const Dev& d, int b);
 #include "tank.h"
 #include "hoth.h"
 static void missileSplash(Player& p, V3 at) {   // the co-pilot's concussion missile: everything close to the blast goes too
-    explode3(at, 9, Col(255, 190, 90)); G.flashes.push_back({ at, 0.45f, 0.45f, 26, Col(255, 200, 120), true }); AU.play(SND_BOOM_L, 0.7f);
+    explode3(at, 9, Col(255, 190, 90)); G.flashes.push_back({ at, 0.45f, 0.45f, 26, Col(255, 200, 120), true }); AU.play3(SND_BOOM_L, at, V3(), 0.9f, 1, 30, 300);
     int n = 0;
     for (auto& f : G.en) if (!f.dead && f.kind == EN_FIGHTER && !f.ace && len3(f.p - at) < 80) { f.dead = true; G.killsDone++; p.kills++; p.score += 1000; n++; explode3(f.p, 5, C_ENEMY, f.v * 0.4f); }
     if (n) { pmsg(p, "MISSILE  x" + std::to_string(n + 1)); printf("game: P%d's missile got %d more\n", p.idx + 1, n); }
@@ -664,17 +664,17 @@ static void playerFire(Player& p) {
             Player& sv = G.pl[e.tgt]; p.score += 500; pmsg(p, "SAVED P" + std::to_string(sv.idx + 1) + "  +500"); pmsg(sv, "P" + std::to_string(p.idx + 1) + " SAVED YOU");
             printf("game: P%d shot the fighter off P%d's tail\n", p.idx + 1, sv.idx + 1);
         }
-        if (e.kind == EN_PURSUER) { printf("game: P%d shot a pursuer\n", p.idx + 1); e.dead = true; p.kills++; p.score += 1000; explode3(e.p, 5, C_ENEMY, V3(0, 0, G.speed)); AU.play(SND_BOOM_S, 0.75f); }
-        else if (e.kind == EN_FIGHTER) { e.dead = true; G.killsDone++; p.kills++; p.score += 1000; explode3(e.p, 5, C_ENEMY, V3(0, 0, G.speed)); AU.play(SND_BOOM_S, 0.75f); if (missile) missileSplash(p, e.p); }
+        if (e.kind == EN_PURSUER) { printf("game: P%d shot a pursuer\n", p.idx + 1); e.dead = true; p.kills++; p.score += 1000; explode3(e.p, 5, C_ENEMY, V3(0, 0, G.speed)); AU.play3(SND_BOOM_S, e.p, e.v, 1.0f, 1, 30, 220); }
+        else if (e.kind == EN_FIGHTER) { e.dead = true; G.killsDone++; p.kills++; p.score += 1000; explode3(e.p, 5, C_ENEMY, V3(0, 0, G.speed)); AU.play3(SND_BOOM_S, e.p, e.v, 1.0f, 1, 30, 220); if (missile) missileSplash(p, e.p); }
         else if (e.kind == EN_TOWER) {
-            e.capDead = true; p.kills++; p.score += 250; explode3(e.p + V3(0, 4.6f, 0), 5, C_TOWER, V3(0, 0, 0)); AU.play(SND_TOWER, 0.7f);
+            e.capDead = true; p.kills++; p.score += 250; explode3(e.p + V3(0, 4.6f, 0), 5, C_TOWER, V3(0, 0, 0)); AU.play3(SND_TOWER, e.p, V3(), 0.95f, 1, 30, 220);
             if (e.side == 0 && ++G.towersHit == G.towersTotal && G.towersTotal > 0) {   // the arcade's big one: every tower top on the run
                 for (auto& q : G.pl) if (q.joined) q.score += 10000;
                 setBanner("ALL TOWER TOPS DESTROYED", "SQUAD BONUS +10000", 3.0f); AU.play(SND_WAVE, 0.9f);
                 printf("game: all %d tower tops destroyed\n", G.towersTotal);
             }
         }
-        else { e.dead = true; p.kills++; p.score += 300; explode3(e.p, 4, C_CAT); AU.play(SND_BOOM_S, 0.6f); }
+        else { e.dead = true; p.kills++; p.score += 300; explode3(e.p, 4, C_CAT); AU.play3(SND_BOOM_S, e.p, V3(), 0.85f, 1, 30, 200); }
     } else if (type == 4) {
         Rock& k = ROCKS[idx];
         if (k.r < 30) { p.score += 100; breakRock(k, V3()); } else { G.flashes.push_back({ c.p + ray * bestT, 0.2f, 0.2f, 4, Col(220, 200, 170), false }); }
@@ -729,7 +729,7 @@ static void updateCapital(float dt) {
                 G.flashes.push_back({ m, 0.12f, 0.12f, 6, Col(120, 255, 140), false });
                 G.flashes.push_back({ at, 0.3f, 0.3f, R.range(5, 10), Col(170, 255, 160), true });
                 if (R.f() < 0.015f) { escortHit(bi); if (getenv("VS_ESCLOG")) printf("esc: flak hit\n"); }
-                float ds = len3(squadCenter() - at); if (ds < 900 && R.f() < 0.35f) AU.play(SND_TIELASER, clampf(1.1f - ds / 900, 0.15f, 0.6f), 0, R.range(0.45f, 0.6f), 60);
+                if (R.f() < 0.35f) AU.play3(SND_TIELASER, m, V3(), 0.8f, R.range(0.45f, 0.6f), 60, 320);   // turbolasers: deep, from the deck gun
             }
         }
         c.gunCd -= dt;   // deck guns fire at anyone flying close
@@ -776,7 +776,7 @@ static void updateAlly(float dt) {
             A.cd = R.range(0.35f, 0.6f);
             V3 gun = A.p + G.ally.v * 0.02f + V3(0, 3, 0);
             G.bolts.push_back({ gun, e.p, 0.22f, 0.22f, Col(255, 120, 70), 9, 0, 0 });
-            if (R.f() < 0.45f) { if (e.state == 3 && G.pl[e.tgt].joined) pmsg(G.pl[e.tgt], "FREIGHTER GOT IT OFF YOUR TAIL"); e.dead = true; G.killsDone++; explode3(e.p, 5, C_ENEMY, e.v * 0.5f); AU.play(SND_BOOM_S, 0.5f); printf("game: freighter shot down a fighter\n"); }
+            if (R.f() < 0.45f) { if (e.state == 3 && G.pl[e.tgt].joined) pmsg(G.pl[e.tgt], "FREIGHTER GOT IT OFF YOUR TAIL"); e.dead = true; G.killsDone++; explode3(e.p, 5, C_ENEMY, e.v * 0.5f); AU.play3(SND_BOOM_S, e.p, e.v * 0.5f, 0.9f, 1, 30, 220); printf("game: freighter shot down a fighter\n"); }
         }
     }
 }
@@ -841,7 +841,7 @@ static void updateFighters(float dt) {
                 e.cd = std::max(0.7f, 1.7f - 0.06f * G.wave) * R.range(0.8f, 1.25f);
                 G.bolts.push_back({ e.p + cur * 6, B.p + rndDir() * 5, 0.18f, 0.18f, Col(120, 255, 120), 9, 0, 0 });
                 if (R.f() < 0.33f) { escortHit(ei); if (getenv("VS_ESCLOG")) printf("esc: fighter hit\n"); }
-                if (len3(e.p - sc) < 700) AU.play(SND_TIELASER, 0.35f, 0, R.range(0.95f, 1.1f), 90);
+                AU.play3(SND_TIELASER, e.p, e.v, 0.6f, R.range(0.95f, 1.1f), 90, 200);
             }
         } else if (e.state == 3) {   // tailing: sit ~110 behind and shoot; hard turns or braking shake it off
             e.tailT += dt;
@@ -856,14 +856,14 @@ static void updateFighters(float dt) {
             e.passT -= dt;
             if (e.passT <= 0 && d < 220 && !T.down) {   // it gets impatient and powers past you: a shot for you
                 e.state = 5; e.pass = 0; e.hide = 4.0f; e.side = R.f() < 0.5f ? -1 : 1;
-                AU.play(SND_TIEFLY, 1.0f, R.range(-0.3f, 0.3f), R.range(1.0f, 1.15f), 250);
+                AU.play3(SND_TIEFLY, e.p, e.v, 1.0f, R.range(1.0f, 1.15f), 250, 200);
                 printf("game: P%d's tail is overtaking\n", T.idx + 1);
             }
             bool overshoot = dot3(e.p - tp, T.fwd) > 0 && d < 60;
             if (e.state == 5) {}
             else if (e.lostT > 1.0f || overshoot || e.tailT > (e.ace ? 20 : 12) || T.down) {
                 if (!T.down && e.tailT <= 12) { if (overshoot) pmsg(T, "IT OVERSHOT - NOW GET IT"); else { pmsg(T, "SHAKEN OFF  +250"); T.score += 250; } }
-                e.state = 1; e.hide = R.range(1.5f, 2.5f); AU.play(SND_TIEFLY, 0.8f, R.range(-0.4f, 0.4f), R.range(0.9f, 1.1f), 250);
+                e.state = 1; e.hide = R.range(1.5f, 2.5f); AU.play3(SND_TIEFLY, e.p, e.v, 0.9f, R.range(0.9f, 1.1f), 250, 200);
             }
         } else if (e.state == 5) {   // overtaking: surge past, then sit out in front of the target, jinking, before breaking off
             V3 rt = norm3(cross3(T.up, T.fwd)), up = cross3(T.fwd, rt);
@@ -881,13 +881,13 @@ static void updateFighters(float dt) {
             }
             if (e.hide <= 0 || T.down || d > 600) {
                 e.state = 1; e.hide = R.range(1.5f, 2.5f); cur = norm3(cur + rndDir() * 0.7f + (e.side ? rt * (float)e.side : V3()) * 0.6f);
-                AU.play(SND_TIEFLY, 0.8f, R.range(-0.4f, 0.4f), R.range(0.9f, 1.1f), 250);
+                AU.play3(SND_TIEFLY, e.p, e.v, 0.9f, R.range(0.9f, 1.1f), 250, 200);
             }
         } else if (e.state == 0) {   // attack run: chase a point ahead of the target, weaving
             V3 aimp = tp + tv * 0.5f + V3(std::sin(e.t * 1.3f + e.weave) * 35, std::cos(e.t * 1.1f + e.weave) * 25, std::sin(e.t * 0.8f + e.weave) * 35);
             V3 want = norm3(aimp - e.p);
             cur = norm3(cur + (want - cur) * std::min(1.f, dt * turn * am));
-            if (d < 120) { e.state = 1; e.hide = R.range(1.8f, 3.2f); cur = norm3(cur + rndDir() * 0.9f); AU.play(SND_TIEFLY, 0.85f, R.range(-0.4f, 0.4f), R.range(0.9f, 1.12f), 250); }
+            if (d < 120) { e.state = 1; e.hide = R.range(1.8f, 3.2f); cur = norm3(cur + rndDir() * 0.9f); AU.play3(SND_TIEFLY, e.p, e.v, 0.95f, R.range(0.9f, 1.12f), 250, 200); }
             if (e.cd <= 0 && d < 780 && d > 90 && dot3(cur, norm3(tp - e.p)) > 0.82f) { e.cd = std::max(0.9f, 2.6f - 0.13f * G.wave) * R.range(0.8f, 1.2f); if (ei >= 0) { if (R.f() < 0.45f) escortHit(ei); } else turretShot(e) || (fireBall(e.p + cur * 7, e.tgt), true); }
         } else {              // extend away, then come round again
             e.hide -= dt; if (e.hide <= 0) { e.state = 0; e.tgt = randomAlive(); }
@@ -2480,6 +2480,23 @@ static void mainTick() {
             if (flying) for (auto& p : G.pl) if (p.joined && !p.bot && !p.down) { float sp = isSpace() || freeGround() ? p.speed : G.speed; rate += sp / 150.f; n++; }
             if (n) { rate = 0.7f + 0.3f * (rate - 1) / n; vol = 0.32f; }
             AU.engine(vol, rate);
+            // listeners: every player's camera; TIE engines: the six fighters nearest any player
+            Audio::Ear ears[4]; int ne = 0; float ep[Audio::NEMIT][3], ev[Audio::NEMIT][3]; int nm = 0;
+            if (G.state == ST_GAME && !G.paused) {
+                for (auto& p : G.pl) if (p.joined && !p.down) { Audio::Ear& e = ears[ne++]; V3 c = p.cam.p, v = pvel(p), r = p.cam.r;
+                    e.p[0] = c.x; e.p[1] = c.y; e.p[2] = c.z; e.v[0] = v.x; e.v[1] = v.y; e.v[2] = v.z; e.r[0] = r.x; e.r[1] = r.y; e.r[2] = r.z; e.on = true; }
+                static const Enemy* slot[Audio::NEMIT] = {};
+                std::vector<std::pair<float, const Enemy*>> near;
+                for (auto& e : G.en) if (!e.dead && (e.kind == EN_FIGHTER || e.kind == EN_PURSUER) && e.state != 4) { float bd = 1e30f; for (int i = 0; i < ne; i++) bd = std::min(bd, len3(e.p - V3(ears[i].p[0], ears[i].p[1], ears[i].p[2]))); if (bd < 700) near.push_back({ bd, &e }); }
+                std::sort(near.begin(), near.end(), [](const std::pair<float, const Enemy*>& a, const std::pair<float, const Enemy*>& b) { return a.first < b.first; });
+                if ((int)near.size() > Audio::NEMIT) near.resize(Audio::NEMIT);
+                const Enemy* want[Audio::NEMIT] = {}; bool used[Audio::NEMIT] = {};
+                for (int i = 0; i < Audio::NEMIT; i++) for (size_t k = 0; k < near.size(); k++) if (!used[k] && near[k].second == slot[i]) { want[i] = slot[i]; used[k] = true; }   // keep fighters in their slots
+                for (size_t k = 0; k < near.size(); k++) if (!used[k]) for (int i = 0; i < Audio::NEMIT; i++) if (!want[i]) { want[i] = near[k].second; break; }
+                for (int i = 0; i < Audio::NEMIT; i++) { slot[i] = want[i]; }
+                nm = 0; for (int i = 0; i < Audio::NEMIT; i++) if (want[i]) { V3 v = len3(want[i]->v) > 0.1f ? want[i]->v : V3(0, 0, G.speed); ep[nm][0] = want[i]->p.x; ep[nm][1] = want[i]->p.y; ep[nm][2] = want[i]->p.z; ev[nm][0] = v.x; ev[nm][1] = v.y; ev[nm][2] = v.z; nm++; }
+            }
+            AU.setEars(ears, ne); AU.setEmitters(ep, ev, nm);
         }
         renderFrame(shot);
         if (shot) G.quit = true;

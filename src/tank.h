@@ -74,7 +74,7 @@ static void tankKill(TankEn& e, Player* by) {
     e.dead = true; int pts = e.kind == TE_TANK ? 1000 : e.kind == TE_SUPER ? 3000 : e.kind == TE_MISSILE ? 2000 : 5000;
     if (by) { by->score += pts; by->kills++; pmsg(*by, (e.kind == TE_SAUCER ? "SAUCER  +" : "HIT  +") + std::to_string(pts)); }
     if (e.kind != TE_SAUCER) G.killsDone++;
-    explode3(e.p + V3(0, 3, 0), e.kind == TE_SAUCER ? 6 : 8, e.kind == TE_SAUCER ? C_PORT : C_ENEMY); AU.play(SND_BOOM_L, 0.7f);
+    explode3(e.p + V3(0, 3, 0), e.kind == TE_SAUCER ? 6 : 8, e.kind == TE_SAUCER ? C_PORT : C_ENEMY); AU.play3(SND_BOOM_L, e.p, V3(), 1.0f, 1, 30, 350);
     printf("game: tank mode kill kind %d (%d/%d)\n", e.kind, G.killsDone, G.killsNeeded);
 }
 static void tankPlayer(Player& p, float dt, bool fire) {

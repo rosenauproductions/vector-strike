@@ -5,6 +5,29 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v24 (3 Nov): 3D sound with doppler; TIE engine loops (md5 05b4300f0f27cb37d68c01374bea6804)
+- **`AU.play3(snd, pos, vel, vol, pitch, gap, ref)`** (audio.h, a template so it can take the game's V3):
+  - Each voice keeps its world position and velocity, and moves on by itself in the audio callback.
+  - Every audio block, the nearest **ear** (one per player camera: position, `pvel`, camera right, set each frame by `AU.setEars`) gives:
+    - **volume** = vol / (1 + (d / ref)²), where ref is 200–400 depending on the sound;
+    - **pan** from the camera's right vector;
+    - **doppler pitch** = (c + v_ear·u) / (c + v_src·u), with c = `SOUND_SPEED` 900 (deliberately slow so passes are obvious), clamped to 0.55–1.8.
+  - Sounds too faint to hear don't take a voice.
+- **Converted to play3:**
+  - enemy fireball / laser launches from their muzzle (trench / tower fireballs too);
+  - fighter, pursuer, tower-top, turret, bomber and tank explosions;
+  - TIE fly-by howls (with the fighter's velocity);
+  - TIE fire at the bombers;
+  - destroyer turbolaser flak (from the deck gun);
+  - the co-pilot missile blast.
+
+  Your own guns, hits on you, UI and the big scripted explosions stay plain stereo.
+- **TIE engines:** a new `enemy_engine` slot loops on the **six fighters / pursuers nearest any player** (within 700), all spatial with doppler (`Audio::Emit`, `setEmitters`). A slot keeps its fighter between frames, and loops ease in and out.
+  - Chris's `tie_fighter_external_sound.wav` (24.9 s stereo 48 kHz) became `sounds/enemy_engine.wav`: mono 24 kHz, loop crossfaded.
+  - There's also a synthesized fallback howl.
+- **Mixer check offline:** a fighter passing at 250 u/s plays at rate 1.38 coming in and 0.78 going away, and peaks in volume at the pass.
+- **Soak:** 1 and 4 bots with audio on, exit 0.
+
 ## v23 (3 Nov, Cowork session): Chris's Star Wars sound pack + engine hum, torpedo, lock-on beep (md5 661e9d3c498668535f4bfeec75d31cf6)
 - **New sound slots** (`audio.h`; each has a synthesized default, and a sound-pack wav replaces it):
   - `torpedo`: plays when you hit the exhaust port, and for the Falcon co-pilot's missiles.
@@ -24,6 +47,7 @@ Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-d
   | xwing_proton_torpedos | torpedo |
   | xwing_inside_cockpit_engine_noise | engine |
   | tie_fighter_inside_engine_noise | engine_tie (Chris: the noise you hear piloting a TIE; nothing uses it yet, no TIE is flyable) |
+| tie_fighter_external_sound (3 Nov, later) | enemy_engine (v24) |
 - **The pack is NOT in git** (`sounds_pack/` is ignored, and the repo is public). It lives on the box in `roms/ports/vectorstrike/sounds/`. To rebuild it, use Chris's original files from the 3 Nov chat.
 - The pack loads in the game: every file shows an `audio: <name> from ./sounds/...` log line.
 

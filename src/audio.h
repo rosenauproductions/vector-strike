@@ -9,18 +9,23 @@
 #include "gfx.h"
 
 enum Snd { SND_LASER, SND_BOOM_S, SND_BOOM_L, SND_BALL, SND_BALLHIT, SND_SHIELD, SND_ALARM, SND_UI, SND_UI_OK,
-           SND_PORT, SND_WAVE, SND_LOSE, SND_DOWN, SND_BANNER, SND_TOWER, SND_TIEFLY, SND_TIELASER, SND_TORPEDO, SND_TARGET, SND_ENGINE, SND_N };
+           SND_PORT, SND_WAVE, SND_LOSE, SND_DOWN, SND_BANNER, SND_TOWER, SND_TIEFLY, SND_TIELASER, SND_TORPEDO, SND_TARGET, SND_ENGINE, SND_TIEENGINE, SND_N };
 // file names for the optional sound pack: <game folder>/sounds/<name>.wav replaces the built-in sound
 static const char* SND_NAMES[SND_N] = { "laser", "boom_small", "boom_big", "fireball", "fireball_hit", "shield_hit", "alarm", "ui", "ui_ok",
                                         "port_hit", "wave_clear", "game_over", "player_down", "banner", "tower_hit", "enemy_flyby", "enemy_laser",
-                                        "torpedo", "target", "engine" };   // torpedo: shot at the exhaust port / missiles; target: sight on an enemy; engine: cockpit hum (loops)
+                                        "torpedo", "target", "engine", "enemy_engine" };   // enemy_engine: the TIE fighters' own engine roar, looped on the nearest few   // torpedo: shot at the exhaust port / missiles; target: sight on an enemy; engine: cockpit hum (loops)
 
 struct Audio {
     static const int RATE = 44100;
     SDL_AudioDeviceID dev = 0;
     std::vector<float> snd[SND_N];
     std::vector<float> music;
-    struct Inst { int s; double pos; float rate, vol, pan; };
+    struct Inst { int s; double pos; float rate, vol, pan; bool sp = false; float px = 0, py = 0, pz = 0, vx = 0, vy = 0, vz = 0, ref = 160; };   // sp: placed in the world
+    // listeners (one per player view): position, velocity, right vector. Spatial sounds use the nearest one.
+    struct Ear { float p[3], v[3], r[3]; bool on; }; Ear ears[4] = {};
+    struct Emit { float p[3], v[3]; float vol = 0, want = 0, rate = 1; double pos = 0; };   // looping engines on the nearest TIEs
+    static const int NEMIT = 6; Emit emit[NEMIT];
+    static constexpr float SOUND_SPEED = 900;   // world units per second: well below "real", so passes are clearly heard to drop in pitch
     std::vector<Inst> inst;
     float sfxVol = 0.8f, musVol = 0.5f;
     Uint32 lastPlay[SND_N] = {};
@@ -70,6 +75,7 @@ struct Audio {
         snd[SND_TORPEDO] = gen(0.8f, [](float t, Rng& r, float& lp) { lp += (r.range(-1, 1) - lp) * (0.3f * std::exp(-t * 3) + 0.03f); float f = 900 * std::exp(-t * 4) + 90; return (lp * 1.6f + std::sin(2 * PI * f * t) * 0.35f) * std::min(1.f, t * 60) * std::exp(-t * 3.5f) * 0.5f; });
         snd[SND_TARGET] = gen(0.18f, [](float t, Rng&, float&) { return sq(2 * PI * 1380 * t) * 0.12f * (std::fmod(t, 0.09f) < 0.06f ? 1.f : 0.f); });
         snd[SND_ENGINE] = gen(2.0f, [](float t, Rng& r, float& lp) { lp += (r.range(-1, 1) - lp) * 0.02f; float w = std::sin(2 * PI * 0.5f * t); return (lp * 2.5f + std::sin(2 * PI * 70 * t) * 0.15f + std::sin(2 * PI * 140 * t) * 0.06f) * (0.8f + 0.2f * w) * 0.35f; });
+        snd[SND_TIEENGINE] = gen(2.0f, [](float t, Rng& r, float& lp) { lp += (r.range(-1, 1) - lp) * 0.35f; float howl = std::sin(2 * PI * 330 * t + 2 * std::sin(2 * PI * 2 * t)); return (lp * 0.5f + howl * 0.25f) * 0.4f; });
         normTo(SND_TIEFLY, 0.6f); normTo(SND_TIELASER, 0.42f);
         buildMusic();
     }
@@ -146,16 +152,46 @@ struct Audio {
             int mn = (int)a->music.size() / 2;
             for (int i = 0; i < frames; i++) { int p = (int)a->mpos; out[i * 2] += a->music[p * 2] * a->musVol; out[i * 2 + 1] += a->music[p * 2 + 1] * a->musVol; a->mpos += 1; if (a->mpos >= mn) a->mpos -= mn; }
         }
+        float bdt = frames / (float)RATE;
         for (size_t k = 0; k < a->inst.size(); ) {
             Inst& in = a->inst[k]; const std::vector<float>& s = a->snd[in.s];
-            float vl = in.vol * a->sfxVol * (1 - std::max(0.f, in.pan)), vr = in.vol * a->sfxVol * (1 + std::min(0.f, in.pan));
+            float gain = in.vol, pan = in.pan, rate = in.rate;
+            if (in.sp) {   // nearest ear: distance falloff, pan from its right vector, doppler from both velocities
+                const Ear* e = nullptr; float bd = 1e30f;
+                for (auto& q : a->ears) if (q.on) { float dx = in.px - q.p[0], dy = in.py - q.p[1], dz = in.pz - q.p[2], d = dx * dx + dy * dy + dz * dz; if (d < bd) { bd = d; e = &q; } }
+                if (e) {
+                    float d = std::sqrt(bd) + 1e-3f, ux = (in.px - e->p[0]) / d, uy = (in.py - e->p[1]) / d, uz = (in.pz - e->p[2]) / d;
+                    float q = d / in.ref; gain *= 1 / (1 + q * q);
+                    pan = clampf((ux * e->r[0] + uy * e->r[1] + uz * e->r[2]) * 0.85f, -0.85f, 0.85f);
+                    float vl = e->v[0] * ux + e->v[1] * uy + e->v[2] * uz, vs = in.vx * ux + in.vy * uy + in.vz * uz;   // + = ear closing / source receding
+                    rate *= clampf((SOUND_SPEED + vl) / std::max(200.f, SOUND_SPEED + vs), 0.55f, 1.8f);
+                }
+                in.px += in.vx * bdt; in.py += in.vy * bdt; in.pz += in.vz * bdt;
+            }
+            float vl = gain * a->sfxVol * (1 - std::max(0.f, pan)), vr = gain * a->sfxVol * (1 + std::min(0.f, pan));
             bool done = false;
             for (int i = 0; i < frames; i++) {
                 int p = (int)in.pos; if (p >= (int)s.size()) { done = true; break; }
-                float v = s[p]; out[i * 2] += v * vl; out[i * 2 + 1] += v * vr; in.pos += in.rate;
+                float v = s[p]; out[i * 2] += v * vl; out[i * 2 + 1] += v * vr; in.pos += rate;
             }
             if (done) { a->inst[k] = a->inst.back(); a->inst.pop_back(); } else k++;
         }
+        { const std::vector<float>& s = a->snd[SND_TIEENGINE]; int n = (int)s.size();   // TIE engines: spatial loops
+          if (n > 64) for (auto& m : a->emit) {
+              if (m.want <= 0 && m.vol < 0.001f) continue;
+              const Ear* e = nullptr; float bd = 1e30f;
+              for (auto& q : a->ears) if (q.on) { float dx = m.p[0] - q.p[0], dy = m.p[1] - q.p[1], dz = m.p[2] - q.p[2], d = dx * dx + dy * dy + dz * dz; if (d < bd) { bd = d; e = &q; } }
+              float gain = 0, pan = 0, rate = m.rate;
+              if (e) { float d = std::sqrt(bd) + 1e-3f, ux = (m.p[0] - e->p[0]) / d, uy = (m.p[1] - e->p[1]) / d, uz = (m.p[2] - e->p[2]) / d, q = d / 120;
+                  gain = m.want / (1 + q * q); pan = clampf((ux * e->r[0] + uy * e->r[1] + uz * e->r[2]) * 0.85f, -0.85f, 0.85f);
+                  float vl = e->v[0] * ux + e->v[1] * uy + e->v[2] * uz, vs = m.v[0] * ux + m.v[1] * uy + m.v[2] * uz;
+                  rate *= clampf((SOUND_SPEED + vl) / std::max(200.f, SOUND_SPEED + vs), 0.55f, 1.8f); }
+              for (int i = 0; i < frames; i++) {
+                  m.vol += (gain - m.vol) * 0.002f; float v = s[(int)m.pos % n] * m.vol * a->sfxVol;
+                  out[i * 2] += v * (1 - std::max(0.f, pan)); out[i * 2 + 1] += v * (1 + std::min(0.f, pan));
+                  m.pos += rate; if (m.pos >= n) m.pos -= n; }
+              for (int k = 0; k < 3; k++) m.p[k] += m.v[k] * bdt;
+          } }
         { const std::vector<float>& s = a->snd[SND_ENGINE]; int n = (int)s.size();   // engine hum, looped, eased in / out
           if (n > 64) for (int i = 0; i < frames; i++) {
               a->loopVolCur += (a->loopVol - a->loopVolCur) * 0.0004f; if (a->loopVolCur < 0.0005f && a->loopVol == 0) break;
@@ -183,6 +219,23 @@ struct Audio {
         if (inst.size() < 48) inst.push_back({ s, 0.0, pitch, vol, clampf(pan, -1, 1) });
         SDL_UnlockAudioDevice(dev);
     }
+    // a sound with a place (and speed) in the world; volume, side and pitch follow it and the nearest player
+    template <class V> void play3(int s, const V& p, const V& v, float vol = 1, float pitch = 1, Uint32 minGapMs = 30, float ref = 160) {   // V: the game's V3 (defined after this header)
+        if (!dev || vol <= 0.01f) return;
+        bool any = false; float bd = 1e30f; for (auto& q : ears) if (q.on) { any = true; float dx = p.x - q.p[0], dy = p.y - q.p[1], dz = p.z - q.p[2]; bd = std::min(bd, dx * dx + dy * dy + dz * dz); }
+        if (any && vol / (1 + bd / (ref * ref)) < 0.012f) return;   // too far to hear: don't take a voice
+        Uint32 now = SDL_GetTicks(); if (now - lastPlay[s] < minGapMs) return; lastPlay[s] = now;
+        SDL_LockAudioDevice(dev);
+        if (inst.size() < 48) { Inst in{ s, 0.0, pitch, vol, 0 }; in.sp = any; in.px = p.x; in.py = p.y; in.pz = p.z; in.vx = v.x; in.vy = v.y; in.vz = v.z; in.ref = ref; inst.push_back(in); }
+        SDL_UnlockAudioDevice(dev);
+    }
+    // the game passes the nearest TIEs each frame (slot i keeps the same fighter while it can, so its loop doesn't jump)
+    void setEmitters(const float (*p)[3], const float (*v)[3], int n) {
+        if (!dev) return; SDL_LockAudioDevice(dev);
+        for (int i = 0; i < NEMIT; i++) { Emit& m = emit[i]; if (i < n) { for (int k = 0; k < 3; k++) { m.p[k] = p[i][k]; m.v[k] = v[i][k]; } if (m.want <= 0) { m.pos = (i * 37717) % 90000; m.rate = 0.94f + 0.03f * i; } m.want = 0.55f; } else m.want = 0; }
+        SDL_UnlockAudioDevice(dev);
+    }
+    void setEars(const Ear* e, int n) { if (!dev) return; SDL_LockAudioDevice(dev); for (int i = 0; i < 4; i++) { if (i < n) ears[i] = e[i]; else ears[i].on = false; } SDL_UnlockAudioDevice(dev); }
     void engine(float vol, float rate) { loopVol = vol; loopRate = clampf(rate, 0.5f, 2.0f); }   // no lock: plain floats read by the callback
     void close() { if (dev) SDL_CloseAudioDevice(dev); dev = 0; }
 };
