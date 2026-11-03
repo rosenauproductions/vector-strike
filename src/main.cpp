@@ -174,7 +174,7 @@ static inline bool backEdge(const Model& m, size_t i, const Cam& cam, V3 mid, V3
 // them far to near, each one's black body triangles and its lines sorted by depth in one BLEND batch, so a body
 // hides the lines (and ships) behind it. The world drawn before is flushed first and stays behind the ships.
 struct SolidItem { const Model* m; Cam cam; V3 pos, fw, rt, up; float s, w, glow; Col c; size_t ne; float z; };
-static std::vector<SolidItem> SOLIDQ; static float HULL_CULL = 1; static bool SOLID_QUEUE = false, SOLID_ON = true;
+static std::vector<SolidItem> SOLIDQ; static float HULL_CULL = 1; static bool SOLID_QUEUE = false, SOLID_ON = true; static float SOLID_ALPHA = 0.5f;   // body opacity (OPTIONS > SOLID SHIPS %)
 static bool SPHERE_CULL = false, FULL_DETAIL = false;   // FULL_DETAIL: draw every edge (player ships)   // set while drawing the station: hide lines on the far side of the globe
 static void drawModelRU(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 fw, V3 rt, V3 up, float s, Col c, float w, float glow) {
     size_t ne = m.e.size();
@@ -227,7 +227,7 @@ static void solidFlush(Canvas& cv, SDL_Renderer* ren) {
             float zc = (a.z + b.z + c.z) / 3; float fg = cam.fog(zc); if (fg <= 0.02f) continue;
             V2 sa = cam.scr(a), sb = cam.scr(b), sc2 = cam.scr(c);
             if (HULL_CULL * ((sb.x - sa.x) * (sc2.y - sa.y) - (sb.y - sa.y) * (sc2.x - sa.x)) < 0) continue;   // the shell is closed: its back faces are hidden anyway
-            Col k = withA(Col(0, 0, 0), std::min(1.f, fg * 1.3f)); int st = (int)stage.size();
+            Col k = withA(Col(0, 0, 0), std::min(1.f, fg * 1.3f) * SOLID_ALPHA); int st = (int)stage.size();
             cv.tri(stage, sa, sb, sc2, k, k, k); el.push_back({ zc, { st, 3 } });
         }
         for (size_t i = 0; i + 1 < it.ne && i + 1 < m.e.size(); i += 2) {
@@ -367,7 +367,7 @@ struct Player {
     bool tailNow = false; float tailHold = 0, tailDist = 0, camBack = 0; std::string msg; float msgT = 0;   // enemy-on-your-tail state
     SDL_Rect vp = { 0, 0, 0, 0 }; Cam cam;
 };
-struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5, trench = 1; bool radar = true; int best = 0, bestWave = 0; bool rails = false, railsManual = false; int foes = 1; int colMode = 0; bool solid = true; };   // foes: ENEMY WAVES 0 fewer / 1 normal / 2 more / 3 lots
+struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5, trench = 1; bool radar = true; int best = 0, bestWave = 0; bool rails = false, railsManual = false; int foes = 1; int colMode = 0; int solidPct = 50; };   // solidPct: how dark the ships' black bodies are, 0 = see-through   // foes: ENEMY WAVES 0 fewer / 1 normal / 2 more / 3 lots
 static float turnMul();
 
 struct Game {
@@ -403,7 +403,7 @@ struct Game {
 // ---------------------------------------------------------------- config
 static void saveCfg() {
     FILE* f = fopen(G.cfgPath.c_str(), "w"); if (!f) return;
-    fprintf(f, "res=%d\nglow=%d\nshake=%d\nsfx=%d\nmusic=%d\ninvert=%d\nturn=%d\nchase=%d\ntrench=%d\nradar=%d\nbest=%d\nbest_wave=%d\nrails=%d\nfoes=%d\ncolmode=%d\nsolid=%d\n", G.opt.res, G.opt.glow, G.opt.shake, G.opt.sfx, G.opt.mus, G.opt.invert, G.opt.turn, G.opt.chase, G.opt.trench, G.opt.radar, G.opt.best, G.opt.bestWave, G.opt.rails, G.opt.foes, G.opt.colMode, (int)G.opt.solid);
+    fprintf(f, "res=%d\nglow=%d\nshake=%d\nsfx=%d\nmusic=%d\ninvert=%d\nturn=%d\nchase=%d\ntrench=%d\nradar=%d\nbest=%d\nbest_wave=%d\nrails=%d\nfoes=%d\ncolmode=%d\nsolidpct=%d\n", G.opt.res, G.opt.glow, G.opt.shake, G.opt.sfx, G.opt.mus, G.opt.invert, G.opt.turn, G.opt.chase, G.opt.trench, G.opt.radar, G.opt.best, G.opt.bestWave, G.opt.rails, G.opt.foes, G.opt.colMode, G.opt.solidPct);
     for (int i = 0; i < CI_N; i++) fprintf(f, "colc_%s=%ld\n", CITEMS[i].key, ((long)CUSTOMC[i].r << 16) | ((long)CUSTOMC[i].g << 8) | CUSTOMC[i].b);
     fclose(f);
 #ifdef __EMSCRIPTEN__
@@ -417,7 +417,7 @@ static void loadCfg() {
     char k[64]; long v;
     while (fscanf(f, " %63[^=]=%ld", k, &v) == 2) {
         std::string s = k;
-        if (s == "solid") G.opt.solid = v != 0;
+        if (s == "solidpct") G.opt.solidPct = (int)clampf((float)v, 0, 100);
         if (s == "colmode") G.opt.colMode = (int)clampf((float)v, 0, CM_N - 1);
         for (int i = 0; i < CI_N; i++) if (s == std::string("colc_") + CITEMS[i].key) CUSTOMC[i] = Col((uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v);
         if (s == "res") G.opt.res = (int)clampf((float)v, 0, 4); else if (s == "glow") G.opt.glow = v != 0; else if (s == "shake") G.opt.shake = v != 0;
@@ -1565,7 +1565,7 @@ static void drawCannons(Canvas& cv, const Player& p) {
     }
 }
 static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
-    bool space = isSpace(); SOLID_QUEUE = true; SOLID_ON = G.opt.solid;
+    bool space = isSpace(); SOLID_QUEUE = true; SOLID_ON = G.opt.solidPct > 0; SOLID_ALPHA = G.opt.solidPct / 100.f;
     if (G.phase != PH_TANK && G.phase != PH_HOTH) drawSky(cv, cam, !space && G.phase != PH_TUNNEL && G.phase != PH_FOX);
     if (space) {
         if (G.phase == PH_LIGHTSPEED) drawLightspeed(cv, cam); else drawStars3(cv, cam, me ? pvel(*me) : V3());
@@ -2260,7 +2260,7 @@ static void updateMenus(float dt) {
             case 9: G.opt.radar = !G.opt.radar; break;
             case 10: G.opt.foes = (G.opt.foes + dx + 4) % 4; break;
             case 11: if (m.a) { G.state = ST_COLORS; G.menuSel = 0; } else { G.opt.colMode = (G.opt.colMode + dx + CM_N) % CM_N; applyColorMode(G.opt.colMode); } break;
-            case 12: G.opt.solid = !G.opt.solid; break;
+            case 12: G.opt.solidPct = (int)clampf((float)(G.opt.solidPct + (m.a ? 0 : dx) * 10), 0, 100); break;
             case 13: if (m.a) { saveCfg(); G.state = ST_TITLE; G.menuSel = 5; } break;
             }
             applyAudioVol();
@@ -2366,7 +2366,7 @@ static void renderMenus(Canvas& cv) {
         { const char* TD[3] = { "OFF", "LOW", "HIGH" }; snprintf(l[8], 64, "TRENCH DETAIL  %s", TD[G.opt.trench]); }
         snprintf(l[9], 64, "RADAR  %s", G.opt.radar ? "ON" : "OFF");
         { const char* FN[4] = { "FEWER", "NORMAL", "MORE", "LOTS" }; snprintf(l[10], 64, "ENEMY WAVES  %s", FN[G.opt.foes]); }
-        snprintf(l[11], 64, "COLORS  %s  -  A TO EDIT", CMODES[G.opt.colMode]); snprintf(l[12], 64, "SOLID SHIPS  %s", G.opt.solid ? "ON - BLACK BODIES" : "OFF - SEE-THROUGH"); snprintf(l[13], 64, "BACK");
+        snprintf(l[11], 64, "COLORS  %s  -  A TO EDIT", CMODES[G.opt.colMode]); if (G.opt.solidPct > 0) snprintf(l[12], 64, "SOLID SHIPS  %d%%", G.opt.solidPct); else snprintf(l[12], 64, "SOLID SHIPS  OFF - SEE-THROUGH"); snprintf(l[13], 64, "BACK");
         const char* items[14] = { l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7], l[8], l[9], l[10], l[11], l[12], l[13] };
         menuList(cv, items, 14, G.menuSel, cx, G.H * 0.17f, 28 * u, 43 * u);
         char info[120]; snprintf(info, sizeof info, "DISPLAY %d X %d   RENDERING %d X %d", G.outW, G.outH, G.W, G.H);
@@ -2548,7 +2548,7 @@ static void renderFrame(bool shotNow) {
 static void testSetup() {
     if (getenv("VS_COLMODE")) { G.opt.colMode = (int)clampf((float)atoi(getenv("VS_COLMODE")), 0, CM_N - 1); applyColorMode(G.opt.colMode); }   // test: colour mode
     if (getenv("VS_HULLCULL")) HULL_CULL = (float)atof(getenv("VS_HULLCULL"));   // test: +1 / -1 back-face sign, 0 off
-    if (getenv("VS_SOLID")) G.opt.solid = atoi(getenv("VS_SOLID")) != 0;   // test: solid ships on / off
+    if (getenv("VS_SOLID")) G.opt.solidPct = (int)clampf((float)atoi(getenv("VS_SOLID")), 0, 100);   // test: solid ships body opacity %, 0 = off
     const char* st = getenv("VS_STATE"); if (!st) return;
     std::string s = st;
     int n = getenv("VS_PLAYERS") ? atoi(getenv("VS_PLAYERS")) : 1;

@@ -13,8 +13,8 @@ Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-d
   - After the player ships: the world drawn so far is flushed, then the queued ships are drawn far to near. For each ship, its front-facing black triangles and its visible lines (captured from `line3`) are sorted by depth, with lines biased 3.5% of the ship's size nearer, and drawn in one BLEND batch. That's a painter's algorithm, so a body hides the lines behind it.
   - Far models (`*_far.vsm`) share the full model's hull. The cockpit view of your own ship isn't affected. Bodies fade with the fog.
   - Back faces: screen-space winding, `HULL_CULL = 1` (checked against no culling: identical image, -1 is wrong).
-- **Option:** OPTIONS > SOLID SHIPS ON / OFF (`solid=` in vectorstrike.cfg, default ON).
-- **Test switches:** `VS_SOLID=0/1`, `VS_HULLCULL=1/-1/0`. Note: test overrides like `VS_SOLID=0` are saved to the cfg on exit.
+- **Option:** OPTIONS > SOLID SHIPS 0–100% in steps of 10 (`solidpct=` in vectorstrike.cfg, **default 50%**, Chris's pick; 0 = OFF, see-through). It sets the black bodies' opacity (`SOLID_ALPHA`): at 50% the lines behind a ship show at half brightness. (The first v26 build had an ON/OFF `solid=` line, now ignored.) md5 with the % option: 4fc56be46ef586a912317324efddbdcd.
+- **Test switches:** `VS_SOLID=0..100` (body opacity %), `VS_HULLCULL=1/-1/0`. Note: test overrides like `VS_SOLID=0` are saved to the cfg on exit.
 - **Cost:** cloud software GL, 4 players, 1500 frames: 85 s with solid ships vs 79 s without (+7%). Soaks clean in all 4 modes.
 - **Web:** `web/dist` rebuilt with the hulls. The Vercel production site (vector-strike-gamma) was redeployed from this branch, 3 Nov.
 **3 Nov ~14:15: installed on ARCADE-21** as the only Vector Strike (md5 05672018e4f39d96501f1844a3f55f03 verified on the share, no backup), plus the 12 `modelpack/*.hull` files and Chris's 11 sounds in `roms/ports/vectorstrike/sounds/` (first time on the box, so v23-v26 sound work arrives with it). All md5s match.
