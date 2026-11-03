@@ -17,6 +17,7 @@ Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-d
 - **Test switches:** `VS_SOLID=0/1`, `VS_HULLCULL=1/-1/0`. Note: test overrides like `VS_SOLID=0` are saved to the cfg on exit.
 - **Cost:** cloud software GL, 4 players, 1500 frames: 85 s with solid ships vs 79 s without (+7%). Soaks clean in all 4 modes.
 - **Web:** `web/dist` rebuilt with the hulls. The Vercel production site (vector-strike-gamma) was redeployed from this branch, 3 Nov.
+**3 Nov ~14:15: installed on ARCADE-21** as the only Vector Strike (md5 05672018e4f39d96501f1844a3f55f03 verified on the share, no backup), plus the 12 `modelpack/*.hull` files and Chris's 11 sounds in `roms/ports/vectorstrike/sounds/` (first time on the box, so v23-v26 sound work arrives with it). All md5s match.
 - **Web sounds:** the online build still uses the built-in synth sounds. Chris's sound pack can't go into the public repo, even encrypted (blocked). Options: make the repo private and pack `sounds_pack/` into the web build (`./build_web.sh --sounds` builds that to the gitignored `web/dist-sounds/`), or deploy that folder from Chris's Mac with the Vercel CLI.
 
 ## v25 (3 Nov): two-seaters: Y-wing and snowspeeder rear gunners (md5 a90aee8c1ebb7dd3c126921c32a27bf8)
