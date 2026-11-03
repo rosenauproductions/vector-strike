@@ -87,6 +87,7 @@ static void blob3(Canvas& cv, const Cam& cam, V3 p, float r, Col c, float minPx 
 
 // ---------------------------------------------------------------- models
 struct Model { std::vector<V3> v; std::vector<int> e; std::vector<V3> n; bool sorted = false; const Model* far = nullptr;   // far: decimated stand-in once small on screen
+      std::vector<V3> hv; std::vector<int> hf; const Model* hull = nullptr;   // solid body (.hull triangles, filled black so the ship can't be seen through); far models point at the full model
       // n: 2 face normals per edge (zero = always drawn)
     void E(std::initializer_list<int> l) { for (int x : l) e.push_back(x); } };
 static Model M_FIGHTER, M_SHIP, M_CITADEL, M_TURRET, PK_PLAYER, PK_ENEMY, PK_STATION, PK_COCKPIT, PK_YWING, PK_FALCON, PK_DESTROYER, PK_TRENCH, PK_BWING, PK_BWING_CK, PK_ARWING, PK_ATAT, PK_SPEEDER, PK_PROBE, PK_HTURRET;
@@ -119,6 +120,20 @@ static bool loadVsm(const std::string& path, Model& m) {
     n.e = e2; n.n = any ? n2 : std::vector<V3>(); n.sorted = true; m = n;
     printf("model: loaded %s (%d verts, %d edges)\n", path.c_str(), (int)m.v.size(), (int)m.e.size() / 2);
     return true;
+}
+// .hull from tools/glb2hull.py: 'v x y z' and 'f a b c' lines in the same frame as the .vsm
+static bool loadHull(const std::string& path, Model& m) {
+    FILE* f = fopen(path.c_str(), "r"); if (!f) return false;
+    char line[256]; m.hv.clear(); m.hf.clear();
+    while (fgets(line, sizeof line, f)) {
+        float x, y, z; int a, b, c;
+        if (line[0] == 'v' && sscanf(line + 1, "%f %f %f", &x, &y, &z) == 3) m.hv.push_back(V3(x, y, z));
+        else if (line[0] == 'f' && sscanf(line + 1, "%d %d %d", &a, &b, &c) == 3) { m.hf.push_back(a); m.hf.push_back(b); m.hf.push_back(c); }
+    }
+    fclose(f);
+    for (int i : m.hf) if (i < 0 || i >= (int)m.hv.size()) { m.hv.clear(); m.hf.clear(); return false; }
+    if (m.hf.empty()) return false;
+    m.hull = &m; printf("model: hull %s (%d tris)\n", path.c_str(), (int)m.hf.size() / 3); return true;
 }
 static void buildModels() {
     // Interceptor: delta arrowhead with twin wingtip fins and a ventral keel
@@ -155,6 +170,11 @@ static inline bool backEdge(const Model& m, size_t i, const Cam& cam, V3 mid, V3
     V3 v = cam.p - mid, na = rt * a.x + up * a.y + fw * a.z, nb = rt * b.x + up * b.y + fw * b.z;
     return dot3(na, v) < 0 && dot3(nb, v) < 0;
 }
+// Solid ships: while SOLID_QUEUE is set, ships with a hull are queued instead of drawn; solidFlush() then draws
+// them far to near, each one's black body triangles and its lines sorted by depth in one BLEND batch, so a body
+// hides the lines (and ships) behind it. The world drawn before is flushed first and stays behind the ships.
+struct SolidItem { const Model* m; Cam cam; V3 pos, fw, rt, up; float s, w, glow; Col c; size_t ne; float z; };
+static std::vector<SolidItem> SOLIDQ; static float HULL_CULL = 1; static bool SOLID_QUEUE = false, SOLID_ON = true;
 static bool SPHERE_CULL = false, FULL_DETAIL = false;   // FULL_DETAIL: draw every edge (player ships)   // set while drawing the station: hide lines on the far side of the globe
 static void drawModelRU(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 fw, V3 rt, V3 up, float s, Col c, float w, float glow) {
     size_t ne = m.e.size();
@@ -162,6 +182,7 @@ static void drawModelRU(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 f
         V3 cc = cam.toCam(pos); if (cc.z < -s * 1.5f) return;
         if (cc.z > 1 && m.far && s * cam.foc / cc.z < 70) { drawModelRU(cv, cam, *m.far, pos, fw, rt, up, s, c, w, glow); return; }
         if (cc.z > 1) { float rpx = s * cam.foc / cc.z; ne = std::min(ne, (size_t)(FULL_DETAIL ? (rpx < 6 ? 200 : std::max(300, (int)(rpx * 12))) : std::max(40, (int)(rpx * 8))) * 2); glow *= rpx < 25 ? 0.5f : 0.35f; w *= 0.85f; }
+        if (SOLID_QUEUE && SOLID_ON && m.hull && cc.z > -s && (cc.z < 1 || s * cam.foc / cc.z > 5)) { SOLIDQ.push_back({ &m, cam, pos, fw, rt, up, s, w, glow, c, ne, cc.z }); return; }
     }
     for (size_t i = 0; i + 1 < ne; i += 2) {
         V3 a = m.v[m.e[i]], b = m.v[m.e[i + 1]];
@@ -186,6 +207,42 @@ static void drawModel(Canvas& cv, const Cam& cam, const Model& m, V3 pos, V3 fw,
         V3 a = m.v[m.e[i]], b = m.v[m.e[i + 1]];
         line3(cv, cam, pos + rt * (a.x * s) + up * (a.y * s) + fw * (a.z * s), pos + rt * (b.x * s) + up * (b.y * s) + fw * (b.z * s), w, c, glow);
     }
+}
+static void solidFlush(Canvas& cv, SDL_Renderer* ren) {
+    if (SOLIDQ.empty()) return;
+    cv.flush(ren);   // everything already drawn sits behind the ships
+    std::sort(SOLIDQ.begin(), SOLIDQ.end(), [](const SolidItem& a, const SolidItem& b) { return a.z > b.z; });
+    static std::vector<SDL_Vertex> stage; static std::vector<std::pair<float, std::pair<int, int>>> el; static std::vector<V3> hc; static Canvas tmp;
+    for (auto& it : SOLIDQ) {
+        const Cam& cam = it.cam; const Model& m = *it.m; const Model& h = *m.hull; stage.clear(); el.clear();
+        const float N = 0.8f; float bias = it.s * 0.035f;
+        hc.resize(h.hv.size());
+        for (size_t i = 0; i < h.hv.size(); i++) { V3 a = h.hv[i]; hc[i] = cam.toCam(it.pos + it.rt * (a.x * it.s) + it.up * (a.y * it.s) + it.fw * (a.z * it.s)); }
+        float tx = cam.vp.w * 0.5f / cam.foc * 1.15f, ty = cam.vp.h * 0.5f / cam.foc * 1.15f;
+        for (size_t i = 0; i + 2 < h.hf.size(); i += 3) {
+            const V3 &a = hc[h.hf[i]], &b = hc[h.hf[i + 1]], &c = hc[h.hf[i + 2]];
+            if (a.z < N || b.z < N || c.z < N) continue;
+            if ((a.x > tx * a.z && b.x > tx * b.z && c.x > tx * c.z) || (a.x < -tx * a.z && b.x < -tx * b.z && c.x < -tx * c.z)) continue;
+            if ((a.y > ty * a.z && b.y > ty * b.z && c.y > ty * c.z) || (a.y < -ty * a.z && b.y < -ty * b.z && c.y < -ty * c.z)) continue;
+            float zc = (a.z + b.z + c.z) / 3; float fg = cam.fog(zc); if (fg <= 0.02f) continue;
+            V2 sa = cam.scr(a), sb = cam.scr(b), sc2 = cam.scr(c);
+            if (HULL_CULL * ((sb.x - sa.x) * (sc2.y - sa.y) - (sb.y - sa.y) * (sc2.x - sa.x)) < 0) continue;   // the shell is closed: its back faces are hidden anyway
+            Col k = withA(Col(0, 0, 0), std::min(1.f, fg * 1.3f)); int st = (int)stage.size();
+            cv.tri(stage, sa, sb, sc2, k, k, k); el.push_back({ zc, { st, 3 } });
+        }
+        for (size_t i = 0; i + 1 < it.ne && i + 1 < m.e.size(); i += 2) {
+            V3 a = m.v[m.e[i]], b = m.v[m.e[i + 1]];
+            V3 wa = it.pos + it.rt * (a.x * it.s) + it.up * (a.y * it.s) + it.fw * (a.z * it.s), wb = it.pos + it.rt * (b.x * it.s) + it.up * (b.y * it.s) + it.fw * (b.z * it.s);
+            if (backEdge(m, i, cam, (wa + wb) * 0.5f, it.rt, it.up, it.fw)) continue;
+            tmp.addV.clear(); line3(tmp, cam, wa, wb, it.w, it.c, it.glow); if (tmp.addV.empty()) continue;
+            float zc = (cam.toCam(wa).z + cam.toCam(wb).z) * 0.5f - bias; int st = (int)stage.size();
+            stage.insert(stage.end(), tmp.addV.begin(), tmp.addV.end()); el.push_back({ zc, { st, (int)tmp.addV.size() } });
+        }
+        std::sort(el.begin(), el.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+        for (auto& q : el) cv.fillV.insert(cv.fillV.end(), stage.begin() + q.second.first, stage.begin() + q.second.first + q.second.second);
+    }
+    SOLIDQ.clear();
+    cv.flush(ren);
 }
 // flyable ships from the model pack. eye = cockpit seat, muz = the four gun muzzles (model units, +z forward,
 // order (sx,sy) = (-,-) (-,+) (+,-) (+,+)), k = size vs the X-wing (12.5 m = 11 units; Y-wing 16.2 m, B-wing 16.9 m tall).
@@ -310,7 +367,7 @@ struct Player {
     bool tailNow = false; float tailHold = 0, tailDist = 0, camBack = 0; std::string msg; float msgT = 0;   // enemy-on-your-tail state
     SDL_Rect vp = { 0, 0, 0, 0 }; Cam cam;
 };
-struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5, trench = 1; bool radar = true; int best = 0, bestWave = 0; bool rails = false, railsManual = false; int foes = 1; int colMode = 0; };   // foes: ENEMY WAVES 0 fewer / 1 normal / 2 more / 3 lots
+struct Opts { int res = 0; bool glow = true, shake = true, invert = false; int sfx = 8, mus = 6, turn = 5, chase = 5, trench = 1; bool radar = true; int best = 0, bestWave = 0; bool rails = false, railsManual = false; int foes = 1; int colMode = 0; bool solid = true; };   // foes: ENEMY WAVES 0 fewer / 1 normal / 2 more / 3 lots
 static float turnMul();
 
 struct Game {
@@ -346,7 +403,7 @@ struct Game {
 // ---------------------------------------------------------------- config
 static void saveCfg() {
     FILE* f = fopen(G.cfgPath.c_str(), "w"); if (!f) return;
-    fprintf(f, "res=%d\nglow=%d\nshake=%d\nsfx=%d\nmusic=%d\ninvert=%d\nturn=%d\nchase=%d\ntrench=%d\nradar=%d\nbest=%d\nbest_wave=%d\nrails=%d\nfoes=%d\ncolmode=%d\n", G.opt.res, G.opt.glow, G.opt.shake, G.opt.sfx, G.opt.mus, G.opt.invert, G.opt.turn, G.opt.chase, G.opt.trench, G.opt.radar, G.opt.best, G.opt.bestWave, G.opt.rails, G.opt.foes, G.opt.colMode);
+    fprintf(f, "res=%d\nglow=%d\nshake=%d\nsfx=%d\nmusic=%d\ninvert=%d\nturn=%d\nchase=%d\ntrench=%d\nradar=%d\nbest=%d\nbest_wave=%d\nrails=%d\nfoes=%d\ncolmode=%d\nsolid=%d\n", G.opt.res, G.opt.glow, G.opt.shake, G.opt.sfx, G.opt.mus, G.opt.invert, G.opt.turn, G.opt.chase, G.opt.trench, G.opt.radar, G.opt.best, G.opt.bestWave, G.opt.rails, G.opt.foes, G.opt.colMode, (int)G.opt.solid);
     for (int i = 0; i < CI_N; i++) fprintf(f, "colc_%s=%ld\n", CITEMS[i].key, ((long)CUSTOMC[i].r << 16) | ((long)CUSTOMC[i].g << 8) | CUSTOMC[i].b);
     fclose(f);
 #ifdef __EMSCRIPTEN__
@@ -360,6 +417,7 @@ static void loadCfg() {
     char k[64]; long v;
     while (fscanf(f, " %63[^=]=%ld", k, &v) == 2) {
         std::string s = k;
+        if (s == "solid") G.opt.solid = v != 0;
         if (s == "colmode") G.opt.colMode = (int)clampf((float)v, 0, CM_N - 1);
         for (int i = 0; i < CI_N; i++) if (s == std::string("colc_") + CITEMS[i].key) CUSTOMC[i] = Col((uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v);
         if (s == "res") G.opt.res = (int)clampf((float)v, 0, 4); else if (s == "glow") G.opt.glow = v != 0; else if (s == "shake") G.opt.shake = v != 0;
@@ -1507,7 +1565,7 @@ static void drawCannons(Canvas& cv, const Player& p) {
     }
 }
 static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
-    bool space = isSpace();
+    bool space = isSpace(); SOLID_QUEUE = true; SOLID_ON = G.opt.solid;
     if (G.phase != PH_TANK && G.phase != PH_HOTH) drawSky(cv, cam, !space && G.phase != PH_TUNNEL && G.phase != PH_FOX);
     if (space) {
         if (G.phase == PH_LIGHTSPEED) drawLightspeed(cv, cam); else drawStars3(cv, cam, me ? pvel(*me) : V3());
@@ -1586,7 +1644,7 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
         }
         drawModelRU(cv, cam, M, sp, sf, sr, su, S, o.col, 1.3f, 1);
     }
-    FULL_DETAIL = false;
+    FULL_DETAIL = false; SOLID_QUEUE = false; solidFlush(cv, G.ren);
     for (auto& b : G.balls) drawBall(cv, cam, b);
     for (auto& b : G.bolts) {
         float fr = 1 - b.t / b.max;
@@ -2185,7 +2243,7 @@ static void updateMenus(float dt) {
         break;
     case ST_HELP: if (m.a || m.b || m.start) { G.state = ST_TITLE; G.menuSel = 4; AU.play(SND_UI, 0.6f); } break;
     case ST_OPTIONS: {
-        if (m.y) { G.menuSel = (G.menuSel + m.y + 13) % 13; AU.play(SND_UI, 0.6f); }
+        if (m.y) { G.menuSel = (G.menuSel + m.y + 14) % 14; AU.play(SND_UI, 0.6f); }
         int dx = m.x + (m.a ? 1 : 0);
         if (dx) {
             AU.play(SND_UI, 0.6f);
@@ -2202,7 +2260,8 @@ static void updateMenus(float dt) {
             case 9: G.opt.radar = !G.opt.radar; break;
             case 10: G.opt.foes = (G.opt.foes + dx + 4) % 4; break;
             case 11: if (m.a) { G.state = ST_COLORS; G.menuSel = 0; } else { G.opt.colMode = (G.opt.colMode + dx + CM_N) % CM_N; applyColorMode(G.opt.colMode); } break;
-            case 12: if (m.a) { saveCfg(); G.state = ST_TITLE; G.menuSel = 5; } break;
+            case 12: G.opt.solid = !G.opt.solid; break;
+            case 13: if (m.a) { saveCfg(); G.state = ST_TITLE; G.menuSel = 5; } break;
             }
             applyAudioVol();
         }
@@ -2299,7 +2358,7 @@ static void renderMenus(Canvas& cv) {
     }
     case ST_OPTIONS: {
         FONT.draw(cv, "OPTIONS", V2(cx, 110 * u), 50 * u, C_PORT, 1, 0, 1.1f);
-        char l[13][64];
+        char l[14][64];
         snprintf(l[0], 64, "RESOLUTION  %s", RESNAMES[G.opt.res]); snprintf(l[1], 64, "GLOW  %s", G.opt.glow ? "ON" : "OFF");
         snprintf(l[2], 64, "SCREEN SHAKE  %s", G.opt.shake ? "ON" : "OFF"); snprintf(l[3], 64, "SOUND  %d", G.opt.sfx); snprintf(l[4], 64, "MUSIC  %d", G.opt.mus);
         snprintf(l[5], 64, "INVERT STICK  %s", G.opt.invert ? "ON - PULL BACK TO CLIMB" : "OFF"); snprintf(l[6], 64, "TURN SPEED  %d", G.opt.turn);
@@ -2307,9 +2366,9 @@ static void renderMenus(Canvas& cv) {
         { const char* TD[3] = { "OFF", "LOW", "HIGH" }; snprintf(l[8], 64, "TRENCH DETAIL  %s", TD[G.opt.trench]); }
         snprintf(l[9], 64, "RADAR  %s", G.opt.radar ? "ON" : "OFF");
         { const char* FN[4] = { "FEWER", "NORMAL", "MORE", "LOTS" }; snprintf(l[10], 64, "ENEMY WAVES  %s", FN[G.opt.foes]); }
-        snprintf(l[11], 64, "COLORS  %s  -  A TO EDIT", CMODES[G.opt.colMode]); snprintf(l[12], 64, "BACK");
-        const char* items[13] = { l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7], l[8], l[9], l[10], l[11], l[12] };
-        menuList(cv, items, 13, G.menuSel, cx, G.H * 0.17f, 28 * u, 43 * u);
+        snprintf(l[11], 64, "COLORS  %s  -  A TO EDIT", CMODES[G.opt.colMode]); snprintf(l[12], 64, "SOLID SHIPS  %s", G.opt.solid ? "ON - BLACK BODIES" : "OFF - SEE-THROUGH"); snprintf(l[13], 64, "BACK");
+        const char* items[14] = { l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7], l[8], l[9], l[10], l[11], l[12], l[13] };
+        menuList(cv, items, 14, G.menuSel, cx, G.H * 0.17f, 28 * u, 43 * u);
         char info[120]; snprintf(info, sizeof info, "DISPLAY %d X %d   RENDERING %d X %d", G.outW, G.outH, G.W, G.H);
         FONT.draw(cv, info, V2(cx, G.H - 100 * u), 15 * u, withA(C_DIM, 0.9f), 1);
         FONT.draw(cv, "LEFT / RIGHT TO CHANGE.  YOUR OWN MUSIC.WAV AND SOUNDS/*.WAV IN THE GAME FOLDER REPLACE THE BUILT-IN AUDIO", V2(cx, G.H - 60 * u), 15 * u, withA(C_DIM, 0.9f), 1);
@@ -2488,6 +2547,8 @@ static void renderFrame(bool shotNow) {
 // ---------------------------------------------------------------- test setup
 static void testSetup() {
     if (getenv("VS_COLMODE")) { G.opt.colMode = (int)clampf((float)atoi(getenv("VS_COLMODE")), 0, CM_N - 1); applyColorMode(G.opt.colMode); }   // test: colour mode
+    if (getenv("VS_HULLCULL")) HULL_CULL = (float)atof(getenv("VS_HULLCULL"));   // test: +1 / -1 back-face sign, 0 off
+    if (getenv("VS_SOLID")) G.opt.solid = atoi(getenv("VS_SOLID")) != 0;   // test: solid ships on / off
     const char* st = getenv("VS_STATE"); if (!st) return;
     std::string s = st;
     int n = getenv("VS_PLAYERS") ? atoi(getenv("VS_PLAYERS")) : 1;
@@ -2630,8 +2691,11 @@ static int gameMain() {
         if (NSHIPS == 2 && loadVsm(md + "bwing.vsm", PK_BWING)) { NSHIPS = 3; loadVsm(md + "bwing_ck.vsm", PK_BWING_CK); }
         loadVsm(md + "falcon.vsm", PK_FALCON); loadVsm(md + "destroyer.vsm", PK_DESTROYER);
         loadVsm(md + "ace.vsm", PK_ACE);
+        { const char* hn[12] = { "player", "enemy", "ywing", "bwing", "falcon", "destroyer", "ace", "arwing", "atat", "speeder", "probe", "hturret" };   // solid bodies
+          Model* hm[12] = { &PK_PLAYER, &PK_ENEMY, &PK_YWING, &PK_BWING, &PK_FALCON, &PK_DESTROYER, &PK_ACE, &PK_ARWING, &PK_ATAT, &PK_SPEEDER, &PK_PROBE, &PK_HTURRET };
+          for (int i = 0; i < 12; i++) if (!hm[i]->v.empty()) loadHull(md + hn[i] + ".hull", *hm[i]); }
         { const char* fn[7] = { "player_far", "enemy_far", "ywing_far", "bwing_far", "falcon_far", "destroyer_far", "ace_far" }; Model* full[7] = { &PK_PLAYER, &PK_ENEMY, &PK_YWING, &PK_BWING, &PK_FALCON, &PK_DESTROYER, &PK_ACE };
-          for (int i = 0; i < 7; i++) if (!full[i]->v.empty() && !getenv("VS_NOFAR") && loadVsm(md + fn[i] + ".vsm", PK_FAR[i])) full[i]->far = &PK_FAR[i]; }
+          for (int i = 0; i < 7; i++) if (!full[i]->v.empty() && !getenv("VS_NOFAR") && loadVsm(md + fn[i] + ".vsm", PK_FAR[i])) { full[i]->far = &PK_FAR[i]; PK_FAR[i].hull = full[i]->hull; } }
         if (loadVsm(md + "trench.vsm", PK_TRENCH)) { for (auto& v : PK_TRENCH.v) TRENCH_TILE = std::max(TRENCH_TILE, v.z); }
         if (loadVsm(md + "station.vsm", PK_STATION)) { MS = &PK_STATION; S_STATION = 1.0f; }
     }

@@ -4,7 +4,7 @@
 through it. .hull text: 'v x y z' and 'f a b c' lines. Usage mirrors glb2vsm: glb2hull.py in.glb out.hull [--matrix M] [--faces N]."""
 import argparse, numpy as np, trimesh
 ap = argparse.ArgumentParser(); ap.add_argument('inp'); ap.add_argument('out')
-ap.add_argument('--faces', type=int, default=1200); ap.add_argument('--skip', default=''); ap.add_argument('--matrix', default='')
+ap.add_argument('--faces', type=int, default=1200); ap.add_argument('--skip', default=''); ap.add_argument('--matrix', default=''); ap.add_argument('--pitch', type=float, default=0.012)
 a = ap.parse_args()
 s = trimesh.load(a.inp, force='scene'); parts = []
 for name in s.graph.nodes_geometry:
@@ -15,17 +15,13 @@ for name in s.graph.nodes_geometry:
 allv = np.vstack([p.vertices for p in parts])
 c = (allv.min(0) + allv.max(0)) / 2; sc = 1 / np.abs(allv - c).max()
 R = np.array(eval(a.matrix)) if a.matrix else np.eye(3)
-FT = sum(len(p.faces) for p in parts) or 1; V, F = [], []
-for p in parts:
-    if not len(p.faces): continue
-    m = trimesh.Trimesh((p.vertices - c) * sc @ R.T, p.faces, process=True); m.merge_vertices()
-    budget = max(12, int(a.faces * len(p.faces) / FT))
-    if len(m.faces) > budget:
-        try: m = m.simplify_quadric_decimation(face_count=budget); m.merge_vertices()
-        except Exception as ex: print('decimate failed', ex)
-    area = m.area_faces; keep = area > 1e-7; base = sum(len(x) for x in V)
-    V.append(m.vertices); F.append(m.faces[keep] + base)
-V = np.vstack(V); F = np.vstack(F)
+# Shell: voxelize the whole ship (thin wings included), fill it, marching cubes, then decimate. A watertight shell
+# decimates cleanly to the face budget; it's about half a voxel fatter than the wireframe, which the game's depth bias covers.
+M = trimesh.util.concatenate([trimesh.Trimesh((p.vertices - c) * sc @ R.T, p.faces, process=False) for p in parts if len(p.faces)])
+vox = M.voxelized(pitch=a.pitch).fill(); m = vox.marching_cubes; m.apply_transform(vox.transform); m.merge_vertices()
+try: m = m.simplify_quadric_decimation(face_count=a.faces)
+except Exception as ex: print('decimate failed', ex)
+m.merge_vertices(); V = m.vertices; F = m.faces[m.area_faces > 1e-8]
 with open(a.out, 'w') as f:
     f.write('# vector strike solid hull from %s\n' % a.inp.split('/')[-1])
     for q in V: f.write('v %.4f %.4f %.4f\n' % tuple(q))

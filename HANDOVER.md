@@ -1,9 +1,23 @@
-# Vector Strike — handover (29 Oct 2026, v21)
+# Vector Strike — handover (3 Nov 2026, v26)
 
 **Code lives on GitHub: `rosenauproductions/vector-strike` (private, branch main).** Cloud sessions: add_repo it and read CLAUDE.md + HANDOVER.md in the repo (HANDOVER.md there is the canonical copy of this doc). Pushed 24 Oct ~21:05 with full history.
 
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
+
+## v26 (3 Nov): solid ships: black bodies hide what's behind them (md5 05672018e4f39d96501f1844a3f55f03)
+- **What it does:** every model-pack ship (X-wing, TIE, Y-wing, B-wing, freighter, Star Destroyer, ace, Arwing, walker, snowspeeder, probe, Hoth turret) now has a black body. Lines on its far side, and stars, trench walls, towers and other ships behind it, no longer show through.
+- **Hulls:** `tools/glb2hull.py` + `tools/build_hulls.sh` make `modelpack/<name>.hull` (`v x y z` / `f a b c`), same centring, scale and matrix as the `.vsm`. It voxelizes the whole ship (pitch 0.012), fills it, runs marching cubes and decimates to 400–1600 triangles. That gives a closed, outward-facing shell about half a voxel fatter than the wireframe. (Per-part decimation was tried first: it kept 5–20k triangles and lost the X-wing's nose.)
+- **Drawing (`solidFlush`):**
+  - While `SOLID_QUEUE` is set (all of `drawScene` up to the player ships), `drawModelRU` queues a ship that has a hull and is over 5 px across instead of drawing it.
+  - After the player ships: the world drawn so far is flushed, then the queued ships are drawn far to near. For each ship, its front-facing black triangles and its visible lines (captured from `line3`) are sorted by depth, with lines biased 3.5% of the ship's size nearer, and drawn in one BLEND batch. That's a painter's algorithm, so a body hides the lines behind it.
+  - Far models (`*_far.vsm`) share the full model's hull. The cockpit view of your own ship isn't affected. Bodies fade with the fog.
+  - Back faces: screen-space winding, `HULL_CULL = 1` (checked against no culling: identical image, -1 is wrong).
+- **Option:** OPTIONS > SOLID SHIPS ON / OFF (`solid=` in vectorstrike.cfg, default ON).
+- **Test switches:** `VS_SOLID=0/1`, `VS_HULLCULL=1/-1/0`. Note: test overrides like `VS_SOLID=0` are saved to the cfg on exit.
+- **Cost:** cloud software GL, 4 players, 1500 frames: 85 s with solid ships vs 79 s without (+7%). Soaks clean in all 4 modes.
+- **Web:** `web/dist` rebuilt with the hulls. The Vercel production site (vector-strike-gamma) was redeployed from this branch, 3 Nov.
+- **Web sounds:** the online build still uses the built-in synth sounds. Chris's sound pack can't go into the public repo, even encrypted (blocked). Options: make the repo private and pack `sounds_pack/` into the web build (`./build_web.sh --sounds` builds that to the gitignored `web/dist-sounds/`), or deploy that folder from Chris's Mac with the Vercel CLI.
 
 ## v25 (3 Nov): two-seaters: Y-wing and snowspeeder rear gunners (md5 a90aee8c1ebb7dd3c126921c32a27bf8)
 - **Lobby:**
