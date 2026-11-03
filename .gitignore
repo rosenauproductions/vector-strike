@@ -12,3 +12,4 @@ android/app/jni/SDL/
 android/app/src/main/java/org/
 android-assets/
 sounds_pack/
+web/dist-sounds/
