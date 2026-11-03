@@ -714,13 +714,15 @@ static void playerFire(Player& p) {
     else if (G.phase == PH_TURRET && p.turret >= 2) {   // cockpit crew: the forward guns on the mandibles, or a missile from under the cockpit
         if (missile) { AU.play(SND_TORPEDO, 0.7f); G.bolts.push_back({ G.falP + V3(0.6f, -0.06f, 0.8f) * FAL_S, end, 0.42f, 0.42f, Col(255, 170, 60), p.idx, 0, 9 }); AU.play(SND_BALL, 0.7f); }
         else for (int sx = -1; sx <= 1; sx += 2) G.bolts.push_back({ G.falP + V3(sx < 0 ? -0.3f : 0.28f, 0.0f, 1.0f) * FAL_S, end, 0.16f, 0.16f, COLS[CI_LASER], p.idx, sx, 0 });
-    } else
+    } else {
+    bool xw = &shipOf(p) == &SHIPS[0] && G.phase != PH_TURRET;   // X-wing: the cannons take turns in diagonal pairs, top-left + bottom-right, then top-right + bottom-left
     for (int sx = -1; sx <= 1; sx += 2) for (int sy = -1; sy <= 1; sy += 2) {
+        if (xw && sx * sy != (p.gun ? 1 : -1)) continue;
         V3 tip = ship + rt * (sx * 0.78f * S_PLAYER) + up * (sy * 0.25f * S_PLAYER) + fw * (0.3f * S_PLAYER);
         if (G.phase == PH_TURRET) { int pair = p.gun ? 1 : -1; if (sy != pair) continue; tip = tcp(c, turretBarrel((sy > 0 ? 0 : 2) + (sx > 0 ? 1 : 0), 1)); }
         else if (modelCockpit(p)) { V3 sp, sf, sr, su; shipFrame(p, sp, sf, sr, su); V3 m = shipOf(p).muz[muzzleIdx(sx, sy)] * (S_PLAYER * shipOf(p).k); tip = sp + sr * m.x + su * m.y + sf * m.z; }
         G.bolts.push_back({ tip, end, 0.16f, 0.16f, COLS[CI_LASER], p.idx, sx, sy });
-    }
+    } }
     if (!missile) AU.play(SND_LASER, 0.42f, clampf((p.vp.x + p.vp.w * 0.5f) / G.W * 2 - 1, -0.5f, 0.5f), R.range(0.95f, 1.05f), 40);
     if (idx < 0) { if (missile) G.flashes.push_back({ end, 0.35f, 0.35f, 14, Col(255, 190, 110), true }); return; }
     if (type == 1) {

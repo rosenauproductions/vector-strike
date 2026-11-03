@@ -5,6 +5,11 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v27 (3 Nov): X-wing cannons fire in turns (md5 46705317e8d8e4ce45eb04c6aa18724a)
+- The X-wing (STRIKE FIGHTER) now fires two cannons per shot in diagonal pairs that take turns: top-left + bottom-right, then top-right + bottom-left (`p.gun` flips each shot). Same fire rate (0.16 s) and same hitscan damage, so the kill rate is unchanged; it's the look and the alternating sound.
+- The other ships still fire all four. The Falcon turrets and the rear gunner are unchanged.
+- Code: `playerFire`, the `xw` check around the four-cannon loop.
+
 ## v26 (3 Nov): solid ships: black bodies hide what's behind them (md5 05672018e4f39d96501f1844a3f55f03)
 - **What it does:** every model-pack ship (X-wing, TIE, Y-wing, B-wing, freighter, Star Destroyer, ace, Arwing, walker, snowspeeder, probe, Hoth turret) now has a black body. Lines on its far side, and stars, trench walls, towers and other ships behind it, no longer show through.
 - **Hulls:** `tools/glb2hull.py` + `tools/build_hulls.sh` make `modelpack/<name>.hull` (`v x y z` / `f a b c`), same centring, scale and matrix as the `.vsm`. It voxelizes the whole ship (pitch 0.012), fills it, runs marching cubes and decimates to 400–1600 triangles. That gives a closed, outward-facing shell about half a voxel fatter than the wireframe. (Per-part decimation was tried first: it kept 5–20k triangles and lost the X-wing's nose.)
