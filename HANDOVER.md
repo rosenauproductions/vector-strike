@@ -9,6 +9,7 @@ Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-d
 - The X-wing (STRIKE FIGHTER) now fires two cannons per shot in diagonal pairs that take turns: top-left + bottom-right, then top-right + bottom-left (`p.gun` flips each shot). Same fire rate (0.16 s) and same hitscan damage, so the kill rate is unchanged; it's the look and the alternating sound.
 - The other ships still fire all four. The Falcon turrets and the rear gunner are unchanged.
 - Code: `playerFire`, the `xw` check around the four-cannon loop.
+- **Not deployed yet**: the Batocera share dropped off Chris's Mac. Staged in `/mnt/user-data/outputs/vs-v27/`. The box has the v26 % build (4fc56be4). Web production still needs a Promote to Production.
 
 ## v26 (3 Nov): solid ships: black bodies hide what's behind them (md5 05672018e4f39d96501f1844a3f55f03)
 - **What it does:** every model-pack ship (X-wing, TIE, Y-wing, B-wing, freighter, Star Destroyer, ace, Arwing, walker, snowspeeder, probe, Hoth turret) now has a black body. Lines on its far side, and stars, trench walls, towers and other ships behind it, no longer show through.
