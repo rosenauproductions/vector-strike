@@ -302,7 +302,8 @@ struct Player {
     V2 glance; Cam aimCam;   // right-stick glance (eased), the camera before the glance (what the guns use)
     bool tkShell = false; float crackT = 0; int cable = -1; float cableAng = 0, cableSum = 0;   // tank mode / ice planet tow cable
     float rollT = 0, charge = 0; int rollDir = 1, foxHits = 0; bool botRoll = false;   // Star Fox mode: barrel roll, charge shot
-    int turret = 0; float tYaw = 0, tPitch = 0.3f;   // level 2 turret fight: 0 top / 1 bottom gun, its aim
+    int turret = 0; float tYaw = 0, tPitch = 0.3f;   // level 2 turret fight: 0 top / 1 bottom gun, its aim (also the rear gunner's swivel)
+    int crewOf = -1, gunner = -1; bool cableReq = false;   // two-seaters: crewOf = the pilot this player is rear gunner for; gunner = the pilot's gunner
     float expT = 0, gunCd = 0;   // trench: time spent above the lip (exposed to the surface guns)
     Cam ck;   // the cockpit camera this frame (your own ship is drawn locked to it)
     float zoom = -1;   // view blend: 0 = in the cockpit, 1 = chase camera (eases between them)
@@ -403,7 +404,7 @@ static bool isSpace() { return G.phase == PH_SPACE || (G.phase == PH_ESCAPE && G
 static bool freeGround() { return G.phase == PH_TANK || G.phase == PH_HOTH; }
 static V3 ppos(const Player& p) { return isSpace() || freeGround() ? p.pos : V3(p.x, p.y, G.z + p.zoff); }
 static float railChaseBack(const Player& p);   // how far back the chase camera must sit to frame the trench / tunnel pursuers (0 = none)
-static bool viewThird(const Player& p) { if (G.phase == PH_TURRET || G.phase == PH_TURNIN) return false; if (G.phase == PH_FOX || G.phase == PH_HOTH) return !p.third; if (G.phase == PH_TANK) return p.third; return p.third || (p.tailHold > 0 && (G.phase == PH_SPACE || G.phase == PH_ASTEROIDS)) || railChaseBack(p) > 0; }
+static bool viewThird(const Player& p) { if (G.phase == PH_TURRET || G.phase == PH_TURNIN || (p.crewOf >= 0 && G.phase != PH_TANK)) return false; if (G.phase == PH_FOX || G.phase == PH_HOTH) return !p.third; if (G.phase == PH_TANK) return p.third; return p.third || (p.tailHold > 0 && (G.phase == PH_SPACE || G.phase == PH_ASTEROIDS)) || railChaseBack(p) > 0; }
 static V3 lerp3(V3 a, V3 b, float t) { return a + (b - a) * t; }
 static void shipFrame(const Player& o, V3& pos, V3& fw, V3& rt, V3& up);
 static void ownFrame(const Player& p, V3& pos, V3& fw, V3& rt, V3& up);
@@ -411,7 +412,7 @@ static void pmsg(Player& p, const std::string& m) { p.msg = m; p.msgT = 2.2f; }
 static V3 pvel(const Player& p) { return isSpace() || freeGround() ? p.fwd * p.speed : V3(0, 0, G.speed); }
 static V3 squadCenter() { V3 c; int n = 0; for (auto& p : G.pl) if (p.joined && !p.down) { c += ppos(p); n++; } return n ? c * (1.f / n) : V3(); }
 static int randomAlive() { std::vector<int> v; for (int i = 0; i < 4; i++) if (G.pl[i].joined && !G.pl[i].down) v.push_back(i); return v.empty() ? 0 : v[R.i((int)v.size())]; }
-static const Ship& shipOf(const Player& p) { if (G.mode == 1 && G.state == ST_GAME && !PK_ARWING.v.empty()) return SHIPS[4]; if (G.level == 2 && G.state == ST_GAME && !PK_FALCON.v.empty()) return SHIPS[3]; return SHIPS[std::min(p.ship, NSHIPS - 1)]; }
+static const Ship& shipOf(const Player& p) { if (p.ship >= 10 && p.ship - 10 < 4 && G.pl[p.ship - 10].ship < 10) return shipOf(G.pl[p.ship - 10]); if (G.mode == 1 && G.state == ST_GAME && !PK_ARWING.v.empty()) return SHIPS[4]; if (G.level == 2 && G.state == ST_GAME && !PK_FALCON.v.empty()) return SHIPS[3]; return SHIPS[std::min(p.ship, NSHIPS - 1)]; }
 // cinematic scale, per camera: far ships are drawn bigger so they still read on screen (hit spheres grow the same,
 // so what you see is what you can hit); 1 up close
 static float visScale(V3 camP, V3 at, float from, float range, float extra) { return 1 + clampf((len3(at - camP) - from) / range, 0, 1) * extra; }
@@ -574,6 +575,12 @@ static void startGame() {
     G.wave = STARTWAVE[G.startSel]; if (getenv("VS_WAVE")) G.wave = std::max(1, atoi(getenv("VS_WAVE")));
     G.z = 0; G.time = 0; G.runs = 0; G.over = false; G.overT = 0; G.paused = false; G.newBest = false;
     G.bolts.clear(); G.frags.clear(); G.flashes.clear();
+    for (auto& p : G.pl) { p.crewOf = -1; p.gunner = -1; }
+    for (auto& p : G.pl) if (p.joined && p.ship >= 10) {   // two-seaters: Y-wing (main game) or snowspeeder (Ice Planet) rear gunners
+        int pi = p.ship - 10; Player& P = G.pl[pi];
+        bool ok = pi != p.idx && P.joined && P.ship < 10 && P.gunner < 0 && (G.mode == 3 || (G.mode == 0 && P.ship == 1));
+        if (ok) { p.crewOf = pi; P.gunner = p.idx; p.tYaw = 0; p.tPitch = 0.1f; printf("game: P%d is P%d's rear gunner\n", p.idx + 1, pi + 1); } else p.ship = 0;
+    }
     for (auto& p : G.pl) if (p.joined) { p.shields = MAXSH; p.down = false; p.score = STARTBONUS[G.startSel]; p.kills = 0; p.ballsShot = 0; p.inv = 0; p.hitT = 0; p.shake = 0; p.fireCd = 0; }
     G.stars.clear(); for (int i = 0; i < 500; i++) G.stars.push_back({ V3(R.range(0, 1300), R.range(0, 1300), R.range(0, 1300)), R.range(0.3f, 1) });
     layoutViews();
@@ -587,11 +594,13 @@ static void startGame() {
 
 // ---------------------------------------------------------------- shooting
 static float crossRange(const Player& p, bool horiz) { float hw = p.vp.w * 0.5f, hh = p.vp.h * 0.5f; return horiz ? std::min(hw, hh * 1.5f) * 0.66f : hh * 0.62f; }
-static V2 crossOff(const Player& p) { if (G.phase == PH_TURRET && p.turret != 3) return V2(); return V2(p.aim.x * crossRange(p, true), -p.aim.y * crossRange(p, false)); }
+static bool crewOn(const Player& p) { return p.crewOf >= 0 && G.phase != PH_TURRET && G.phase != PH_TANK; }
+static V2 crossOff(const Player& p) { if ((G.phase == PH_TURRET && p.turret != 3) || crewOn(p)) return V2(); return V2(p.aim.x * crossRange(p, true), -p.aim.y * crossRange(p, false)); }
 static V3 portPos() { return V3(0, TR_FLOOR + 0.5f, G.trenchZ0 + G.trenchLen); }
 
 static void wiiRumble(int devId, int ms);
 static void hitPlayer(Player& p, const char* why) {
+    if (p.crewOf >= 0 && G.phase != PH_TURRET) { hitPlayer(G.pl[p.crewOf], why); return; }   // the rear gunner rides in the pilot's ship
     if (p.down || p.inv > 0) return;
     if (!p.bot) wiiRumble(p.dev, p.shields <= 1 ? 600 : 250);
     p.shields--; p.inv = 0.9f; p.hitT = 0.5f; if (G.opt.shake) p.shake = std::max(p.shake, 16.f);
@@ -643,7 +652,8 @@ static void playerFire(Player& p) {
     // wingmates see them leave your four wingtips
     V3 rt, up; basisFrom(isSpace() ? p.fwd : V3(0, 0, 1), 0, rt, up); if (isSpace()) { rt = norm3(cross3(p.up, p.fwd)); up = cross3(p.fwd, rt); }
     V3 ship = ppos(p), fw = isSpace() ? p.fwd : V3(0, 0, 1);
-    if (G.phase == PH_TURRET && p.turret >= 2) {   // cockpit crew: the forward guns on the mandibles, or a missile from under the cockpit
+    if (crewOn(p)) { for (int sx = -1; sx <= 1; sx += 2) G.bolts.push_back({ c.p + c.r * (sx * 1.2f) - c.u * 0.8f + c.f * 2.0f, end, 0.16f, 0.16f, COLS[CI_LASER], p.idx, sx, 0 }); }   // rear gun
+    else if (G.phase == PH_TURRET && p.turret >= 2) {   // cockpit crew: the forward guns on the mandibles, or a missile from under the cockpit
         if (missile) { AU.play(SND_TORPEDO, 0.7f); G.bolts.push_back({ G.falP + V3(0.6f, -0.06f, 0.8f) * FAL_S, end, 0.42f, 0.42f, Col(255, 170, 60), p.idx, 0, 9 }); AU.play(SND_BALL, 0.7f); }
         else for (int sx = -1; sx <= 1; sx += 2) G.bolts.push_back({ G.falP + V3(sx < 0 ? -0.3f : 0.28f, 0.0f, 1.0f) * FAL_S, end, 0.16f, 0.16f, COLS[CI_LASER], p.idx, sx, 0 });
     } else
@@ -994,7 +1004,8 @@ static void hullAvoid(Player& p, V2& desired) {
 static void formationAdjust(Player& p, V2& desired) {
     if (joinedCount() < 2 || p.down || G.phase == PH_TURRET) return;   // the freighter's crew all ride the same ship
     static const float SX[4] = { -1, 1, -1, 1 }, SY[4] = { 0.5f, 0.5f, -0.6f, -0.6f };
-    int r = 0, n = 0; for (auto& o : G.pl) if (o.joined && !o.down) { if (&o == &p) r = n; n++; } if (n < 2) return;
+    if (p.crewOf >= 0) return;
+    int r = 0, n = 0; for (auto& o : G.pl) if (o.joined && !o.down && o.crewOf < 0) { if (&o == &p) r = n; n++; } if (n < 2) return;
     bool rails = G.phase == PH_SURFACE || G.phase == PH_TRENCH || G.phase == PH_TUNNEL || G.phase == PH_FOX;
     if (rails) {
         float mx = 0, my = 0; for (auto& o : G.pl) if (o.joined && !o.down) { mx += o.x; my += o.y; } mx /= n; my /= n;
@@ -1109,8 +1120,40 @@ static void botThink(Player& p, float dt, V2& desired, bool& fire) {
     (void)dt;
 }
 
+// rear gunner of a two-seater: rides with the pilot (same place, shields and fate), the stick swivels the gun, fire
+// shoots backwards; on the ice planet X / 1 fires the pilot's tow cable
+static void crewUpdate(Player& p, float dt) {
+    Player& P = G.pl[p.crewOf];
+    p.pos = P.pos; p.fwd = P.fwd; p.up = P.up; p.x = P.x; p.y = P.y; p.zoff = P.zoff; p.speed = P.speed; p.bank = P.bank;
+    p.shields = P.shields; p.down = P.down; p.inv = P.inv; p.tailNow = P.tailNow; p.tailHold = P.tailHold;
+    if (p.down || G.phase == PH_TURNIN || G.phase == PH_ESCAPE || G.phase == PH_TALLY) return;
+    bool fire = false, cab = false; V2 st;
+    if (p.bot) {   // swing onto the nearest target in the gun's half of the sky
+        float bd = 1e9; V3 tg; bool h = false; V3 me = p.cam.p;
+        auto consider = [&](V3 q) { V3 cc = p.cam.toCam(q); float d = len3(q - me) + (cc.z < 0 ? 900 : 0); if (d < bd && d < 1100) { bd = d; tg = q; h = true; } };
+        for (auto& e : G.en) if (!e.dead && (e.kind == EN_FIGHTER || e.kind == EN_PURSUER) && e.state != 4) consider(e.p);
+        if (G.phase == PH_HOTH) for (auto& q : PRB) if (!q.dead) consider(q.p);
+        if (h) { V3 cc = p.cam.toCam(tg); float ax = std::atan2(cc.x, cc.z), ay = std::atan2(cc.y, std::max(1.f, std::sqrt(cc.x * cc.x + cc.z * cc.z))); st = V2(clampf(ax * 2.5f, -1, 1), clampf(ay * 2.5f, -1, 1)); fire = cc.z > 0 && std::fabs(ax) < 0.06f && std::fabs(ay) < 0.06f; }
+        if (G.phase == PH_HOTH) for (auto& w : WK) if (!w.dead && w.fallT < 0 && P.cable < 0) { V3 d = wkLegsC(w) - P.pos; if (len3(V3(d.x, 0, d.z)) < 110 && P.pos.y < 30) cab = true; }
+    } else if (Dev* d = devById(p.dev)) {
+        if (d->wii && d->ptrOk) st = d->ptr; else st = V2(d->mv.x, -d->mv.y);
+        if (p.invert) st.y = -st.y;
+        fire = d->b[B_A] || d->b[B_B] || d->b[B_RB] || (d->id == -1 && d->ml); cab = pr(*d, B_X);
+    }
+    if (getenv("VS_AUTOFIRE")) fire = true;
+    p.aim = st; p.tYaw = clampf(p.tYaw - st.x * 1.9f * turnMul() * dt, -2.1f, 2.1f); p.tPitch = clampf(p.tPitch + st.y * 1.4f * turnMul() * dt, -0.45f, 0.95f);   // facing backwards: stick right swings the gun to your right
+    p.fireCd -= dt;
+    if (G.phase == PH_HOTH) {
+        if (cab) P.cableReq = true;
+        if (fire && p.fireCd <= 0 && !G.over) hothShoot(p, p.cam.p, p.cam.f, p.cam.r);
+        return;
+    }
+    if (cab) pmsg(p, "TOW CABLE: ICE PLANET ONLY");
+    if (fire && p.fireCd <= 0 && !G.over && G.phase != PH_ESCAPE) playerFire(p);
+}
 static void updatePlayer(Player& p, float dt) {
     p.inv = std::max(0.f, p.inv - dt); p.hitT = std::max(0.f, p.hitT - dt); p.msgT = std::max(0.f, p.msgT - dt); p.shake *= std::pow(0.02f, dt); if (p.shake < 0.1f) p.shake = 0; p.fireCd -= dt;
+    if (crewOn(p)) { crewUpdate(p, dt); return; }
     if (p.down) { p.downT += dt; return; }
     if (G.phase == PH_TURNIN) { p.aim = p.aim * std::pow(0.05f, dt); p.steer = p.aim; return; }   // on rails into the canyon
     bool fire = false;
@@ -1519,7 +1562,7 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
     }
     for (auto& c : G.cat) box3(cv, cam, V3(-TR_W, c.y0, c.z - 1.5f), V3(TR_W, c.y1, c.z + 1.5f), C_CAT, 1.4f, true);
     FULL_DETAIL = true;
-    for (auto& o : G.pl) if (o.joined && !o.down && G.phase != PH_TURRET && !freeGround() && (G.phase != PH_TURNIN || &o == me)) {
+    for (auto& o : G.pl) if (o.joined && !o.down && G.phase != PH_TURRET && !freeGround() && (G.phase != PH_TURNIN || &o == me) && !crewOn(o)) {
         V3 sp, sf, sr, su; bool own = &o == me;
         if (own && !modelCockpit(o) && !viewThird(*me)) continue;   // built-in ship: the drawn cannons stand in for it
         if (own) ownFrame(o, sp, sf, sr, su); else shipFrame(o, sp, sf, sr, su);
@@ -1547,7 +1590,7 @@ static void drawScene(Canvas& cv, const Cam& cam, const Player* me) {
     for (auto& b : G.balls) drawBall(cv, cam, b);
     for (auto& b : G.bolts) {
         float fr = 1 - b.t / b.max;
-        if (me && b.owner == me->idx && G.phase == PH_TURRET && me->turret >= 2) {   // cockpit crew: the shot (or missile) races out ahead of you
+        if (me && b.owner == me->idx && ((G.phase == PH_TURRET && me->turret >= 2) || crewOn(*me))) {   // cockpit crew: the shot (or missile) races out ahead of you
             float t0 = fr * fr * 0.85f, t1 = std::min(1.f, t0 + 0.3f * (1 - fr) + 0.06f);
             line3(cv, cam, lerp3(b.a, b.b, t0), lerp3(b.a, b.b, t1), b.sy == 9 ? 4.0f : 2.6f, b.c, 1.2f);   // missile: thicker, orange
         } else if (me && b.owner == me->idx && G.phase == PH_TURRET) {   // turret guns: streaks from the two firing barrels onto the sight
@@ -1818,7 +1861,7 @@ static void setupCam(Player& p) {
     setupCamBase(p); p.aimCam = p.cam;
     V2 want; if (!p.bot && G.state == ST_GAME && !G.paused) { Dev* d = devById(p.dev); if (d) want = d->rs; }
     if (getenv("VS_GLANCE") && p.idx == 0) { want = V2(); sscanf(getenv("VS_GLANCE"), "%f,%f", &want.x, &want.y); p.glance = want; }   // test
-    if (G.phase == PH_TURRET) want = V2();
+    if (G.phase == PH_TURRET || crewOn(p)) want = V2();
     p.glance = p.glance + (want - p.glance) * 0.12f; if (len(p.glance) < 0.002f) { p.glance = V2(); return; }
     float yaw = p.glance.x * 2.6f, pitch = -p.glance.y * 0.9f;   // full right stick = look almost straight behind
     Cam& c = p.cam; V3 up = c.u, f = c.f, r = c.r;
@@ -1849,6 +1892,15 @@ static void setupCamBase(Player& p) {
         p.cam = c0; p.ck = c0; return;
     }
     if (G.phase == PH_HOTH) { hothCam(p, p.vp, vfov); return; }
+    if (crewOn(p) && G.phase != PH_TURNIN) {   // rear gunner: sits at the back of the pilot's ship facing backwards, the stick swivels the gun
+        const Player& P = G.pl[p.crewOf]; V3 pos = ppos(P), fw, up;
+        if (isSpace() || freeGround()) { fw = norm3(P.fwd); V3 rt = norm3(cross3(P.up, fw)); up = cross3(fw, rt); } else { fw = V3(0, 0, 1); up = V3(0, 1, 0); }
+        V3 rt = norm3(cross3(up, fw)), back = fw * -1.f;
+        V3 d = norm3(back * std::cos(p.tYaw) + rt * std::sin(p.tYaw)); d = norm3(d * std::cos(p.tPitch) + up * std::sin(p.tPitch));
+        float k = G.mode == 3 ? 0.35f : S_PLAYER * shipOf(P).k * 0.55f;
+        p.cam.setBasis(pos - fw * (k * 1.6f) + up * (k * 0.7f), d, up, 0, p.vp, vfov);
+        p.cam.fogNear = G.mode == 3 ? 1800 : 1700; p.cam.fogFar = G.mode == 3 ? 3400 : 3200; p.ck = p.cam; return;
+    }
     if (G.phase == PH_TURRET) {   // in the gun turret: the camera is the turret
         V3 f, up; turretBasis(p, f, up); p.cam.setBasis(turretEye(p), f, up, 0, p.vp, vfov); p.cam.fogNear = 1700; p.cam.fogFar = 3200; p.ck = p.cam; return;
     }
@@ -1883,6 +1935,20 @@ static void setupCamBase(Player& p) {
     p.cam = c1; p.cam.p = lerp3(c0.p, c1.p, t);
     V3 f = norm3(lerp3(c0.f, c1.f, t)), u = lerp3(c0.u, c1.u, t); V3 r = norm3(cross3(u, f)); p.cam.f = f; p.cam.r = r; p.cam.u = cross3(f, r);
 }
+// the rear gunner's view: a round gun sight, the twin barrels at the bottom, which way the gun faces
+static void drawGunnerOverlay(Canvas& cv, const Player& p) {
+    const SDL_Rect& vp = p.vp; float u = vp.h / 1080.f, cx = vp.x + vp.w * 0.5f, cy = vp.y + vp.h * 0.5f; Col fr(150, 160, 185); const Player& P = G.pl[p.crewOf];
+    cv.circle(V2(cx, cy), vp.h * 0.09f, 2 * u, withA(P.col, 0.8f), 0.4f, 40); cv.circle(V2(cx, cy), vp.h * 0.015f, 2 * u, withA(P.col, 0.9f), 0.4f, 12);
+    for (int i = 0; i < 4; i++) { float a = i * PI / 2; V2 d(std::cos(a), std::sin(a)); cv.line(V2(cx, cy) + d * (vp.h * 0.03f), V2(cx, cy) + d * (vp.h * 0.075f), 2 * u, withA(P.col, 0.9f), 0.4f); }
+    for (int s = -1; s <= 1; s += 2) {   // barrels
+        float kick = 0; for (auto& b : G.bolts) if (b.owner == p.idx && b.sx == s) kick = std::max(kick, b.t / b.max);
+        float bx = cx + s * vp.w * 0.09f, by = vp.y + vp.h * (1.0f + 0.03f * kick);
+        cv.line(V2(bx, by), V2(cx + s * vp.w * 0.035f, cy + vp.h * 0.2f + kick * 10 * u), 9 * u, mixc(Col(120, 130, 155), P.col, 0.3f), 0.3f);
+    }
+    float yawDeg = p.tYaw * 57.3f; char t[64]; snprintf(t, sizeof t, "REAR GUNNER - P%d'S %s   GUN %s%d", P.idx + 1, G.mode == 3 ? "SNOWSPEEDER" : "BOMBER", yawDeg < 0 ? "L" : yawDeg > 0 ? "R" : "", (int)std::fabs(yawDeg));
+    FONT.draw(cv, t, V2(cx, vp.y + vp.h - 28 * u), 15 * u, withA(P.col, 0.85f), 1);
+    if (G.phase == PH_HOTH) FONT.draw(cv, P.cable >= 0 ? "CABLE ON - TELL YOUR PILOT TO CIRCLE IT" : "X / 1 - FIRE THE TOW CABLE (GET LOW, NEAR A WALKER)", V2(cx, vp.y + vp.h - 52 * u), 14 * u, withA(C_WHITE, 0.75f), 1);
+}
 static void renderGame(Canvas& cv) {
     std::vector<Player*> views; for (auto& q : G.pl) if (q.joined) views.push_back(&q);
     for (Player* p : views) {
@@ -1890,6 +1956,7 @@ static void renderGame(Canvas& cv) {
         LW = std::max(0.9f, p->vp.h / 1080.f * (p->vp.h < G.H * 0.75f ? 1.5f : 1.0f) * 1.6f);
         SDL_RenderSetClipRect(G.ren, &p->vp);
         if (!p->down && G.phase == PH_TURRET) { drawScene(cv, p->cam, p); cv.flush(G.ren); drawTurretOverlay(cv, *p); cv.flush(G.ren); }
+        else if (!p->down && crewOn(*p) && G.phase != PH_TURNIN) { drawScene(cv, p->cam, p); cv.flush(G.ren); drawGunnerOverlay(cv, *p); cv.flush(G.ren); }
         else if (!p->down) { drawScene(cv, p->cam, p); if (!viewThird(*p) && !modelCockpit(*p) && G.phase != PH_TALLY && !(G.phase == PH_ESCAPE && G.citBoom)) { drawCannons(cv, *p); cv.flush(G.ren); } }
         drawHud(cv, *p); cv.flush(G.ren);
     }
@@ -2172,7 +2239,16 @@ static void updateMenus(float dt) {
                 if (d.navX) { G.startSel = (G.startSel + d.navX + 3) % 3; AU.play(SND_UI, 0.6f); }
                 if (pr(d, B_BACK) && !d.b[B_START]) { G.opt.rails = !G.opt.rails; G.opt.railsManual = true; AU.play(SND_UI, 0.6f); }
                 if (pr(d, B_LB) || pr(d, B_RB)) { G.startLevel = (G.startLevel + (pr(d, B_RB) ? 1 : 2)) % 3 + 1; AU.play(SND_UI, 0.6f); }
-                if (d.navY && NSHIPS > 1) { p.ship = (p.ship + NSHIPS + (d.navY > 0 ? 1 : -1)) % NSHIPS; AU.play(SND_UI, 0.6f); }
+                if (d.navY && (G.mode == 3 || (G.mode == 0 && NSHIPS > 1))) {   // ships, then rear-gunner seats in the other players' two-seaters
+                    std::vector<int> opts; if (G.mode == 0) for (int s = 0; s < NSHIPS; s++) opts.push_back(s); else opts.push_back(0);
+                    for (auto& q : G.pl) if (q.joined && &q != &p && q.ship < 10 && (G.mode == 3 || q.ship == 1)) {
+                        bool taken = false; for (auto& o : G.pl) if (o.joined && &o != &p && o.ship == 10 + q.idx) taken = true;
+                        bool mine = false; for (auto& o : G.pl) if (o.joined && o.ship == 10 + p.idx) mine = true;   // someone already rides with me
+                        if (!taken && !mine) opts.push_back(10 + q.idx);
+                    }
+                    int cur = 0; for (size_t k = 0; k < opts.size(); k++) if (opts[k] == p.ship) cur = (int)k;
+                    p.ship = opts[(cur + (int)opts.size() + (d.navY > 0 ? 1 : -1)) % opts.size()]; AU.play(SND_UI, 0.6f);
+                }
                 if (pr(d, B_START)) startNow = true;
             } else if (pr(d, B_B) && joinedCount() == 0) { G.state = ST_TITLE; G.menuSel = 0; AU.play(SND_UI, 0.6f); }
         }
@@ -2295,12 +2371,18 @@ static void renderMenus(Canvas& cv) {
                 Cam c; SDL_Rect r = { (int)x, (int)(y0 + 135 * u), (int)pw, (int)(90 * u) }; c.set(V3(0, 3.0f, -11), 0, -0.25f, 0, r, 0.9f); LW = u * 1.3f;
                 const Ship& sh = shipOf(p); bool pk = MP == &PK_PLAYER && !sh.m->v.empty();
                 drawModel(cv, c, pk ? *sh.m : *MP, V3(0, 0, 0), V3(std::sin(G.stateT * 0.9f + i), 0, std::cos(G.stateT * 0.9f + i)), 0, pk ? 5.0f * std::min(1.1f, sh.k) : 1.f, p.col, 1.2f);
-                if (NSHIPS > 1 && G.mode == 0) {   // ship picker (Star Fox mode: everyone flies the star fighter): big and blinking so it can't be missed
+                if (p.ship >= 10) { int pi = p.ship - 10; bool ok = G.pl[pi].joined && G.pl[pi].ship < 10 && (G.mode == 3 || (G.mode == 0 && G.pl[pi].ship == 1)); if (!ok) p.ship = 0; }   // the pilot left or changed ship
+                if (G.mode == 3 || (NSHIPS > 1 && G.mode == 0)) {   // ship picker (Star Fox mode: everyone flies the star fighter): big and blinking so it can't be missed
+                    char nmb[48]; const char* shownm = sh.name; const char* desc = sh.bomb > 1.6f ? "BIG HITS ON TARGETS - SLOW TURNS" : sh.bomb > 1 ? "BIGGER HITS ON TARGETS - HEAVIER TURNS" : "ALL-ROUND DOGFIGHTER";
+                    bool hasG = false; for (auto& o : G.pl) if (o.joined && o.ship == 10 + p.idx) hasG = true;
+                    if (G.mode == 3) { shownm = "SNOWSPEEDER PILOT"; desc = hasG ? "YOUR REAR GUNNER FIRES THE TOW CABLE" : "X FIRES THE TOW CABLE"; }
+                    else if (p.ship == 1) desc = hasG ? "YOUR REAR GUNNER COVERS YOUR TAIL" : "BIGGER HITS - ANOTHER PLAYER CAN BE YOUR REAR GUNNER";
+                    if (p.ship >= 10) { snprintf(nmb, sizeof nmb, "REAR GUNNER - P%d", p.ship - 9); shownm = nmb; desc = G.mode == 3 ? "SHOOT BEHIND - FIRE THE TOW CABLE (X)" : "SWIVEL THE GUN, GUARD THE TAIL"; }
                     float bl = 0.55f + 0.45f * std::sin(G.stateT * 5 + i);
-                    FONT.draw(cv, "UP / DOWN = CHANGE SHIP", V2(x + pw / 2, y0 + 232 * u), 12 * u, withA(C_WHITE, 0.45f + 0.5f * bl), 1);
-                    FONT.draw(cv, sh.name, V2(x + pw / 2, y0 + 254 * u), 16 * u, p.col, 1, 0, 0.8f);
-                    snprintf(t, sizeof t, "%d / %d", std::min(p.ship, NSHIPS - 1) + 1, NSHIPS); FONT.draw(cv, t, V2(x + pw - 30 * u, y0 + 140 * u), 12 * u, withA(p.col, 0.8f), 1);
-                    FONT.draw(cv, sh.bomb > 1.6f ? "BIG HITS ON TARGETS - SLOW TURNS" : sh.bomb > 1 ? "BIGGER HITS ON TARGETS - HEAVIER TURNS" : "ALL-ROUND DOGFIGHTER", V2(x + pw / 2, y0 + 276 * u), 10 * u, withA(C_WHITE, 0.6f), 1);
+                    FONT.draw(cv, G.mode == 3 ? "UP / DOWN = PILOT OR GUNNER" : "UP / DOWN = CHANGE SHIP", V2(x + pw / 2, y0 + 232 * u), 12 * u, withA(C_WHITE, 0.45f + 0.5f * bl), 1);
+                    FONT.draw(cv, shownm, V2(x + pw / 2, y0 + 254 * u), 16 * u, p.ship >= 10 ? G.pl[p.ship - 10].col : p.col, 1, 0, 0.8f);
+                    if (G.mode == 0 && p.ship < 10) { snprintf(t, sizeof t, "%d / %d", std::min(p.ship, NSHIPS - 1) + 1, NSHIPS); FONT.draw(cv, t, V2(x + pw - 30 * u, y0 + 140 * u), 12 * u, withA(p.col, 0.8f), 1); }
+                    FONT.draw(cv, desc, V2(x + pw / 2, y0 + 276 * u), 10 * u, withA(C_WHITE, 0.6f), 1);
                 }
                 snprintf(t, sizeof t, "%s INVERT Y: %s", btnLab(p.dev, B_X), p.invert ? "ON" : "OFF"); FONT.draw(cv, t, V2(x + pw / 2, y0 + 300 * u), 12 * u, withA(C_WHITE, 0.8f), 1);
                 if (d && d->wii) snprintf(t, sizeof t, d->ptrOk ? "WII POINTER: OK" : "POINT AT THE SENSOR BAR"); else
@@ -2416,6 +2498,7 @@ static void testSetup() {
     if (s == "help") { G.state = ST_HELP; return; }
     if (s == "colors") { G.state = ST_COLORS; G.menuSel = getenv("VS_COLSEL") ? atoi(getenv("VS_COLSEL")) : 1; return; }
     for (int i = 0; i < n; i++) { joinPlayer(i == 0 ? -1 : 1000 + i); if (G.bots) G.pl[i].bot = true; }
+    if (getenv("VS_CREW") && n >= 2) { G.pl[0].ship = G.mode == 0 ? 1 : 0; G.pl[1].ship = 10; if (n >= 4) { G.pl[2].ship = G.mode == 0 ? 1 : 0; G.pl[3].ship = 12; } }   // test: two-seaters
     if (getenv("VS_RAILS")) { G.opt.rails = atoi(getenv("VS_RAILS")) != 0; G.opt.railsManual = true; }   // test: force ON RAILS on/off
     if (s == "lobby") { G.state = ST_LOBBY; return; }
     startGame();

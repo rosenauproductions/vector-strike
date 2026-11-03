@@ -73,6 +73,7 @@ static void hothGenLost() {
     setBanner("SHIELD GENERATOR LOST", "", 4.0f);
     for (auto& p : G.pl) if (p.joined && !p.down) { p.inv = 0; while (!p.down) { p.inv = 0; hitPlayer(p, "generator lost"); } }
 }
+static void hothShoot(Player& p, V3 me, V3 dir, V3 rt);
 static void hothPlayer(Player& p, float dt, bool fire) {
     // flight: like open space, but low over the snow
     p.speed = clampf(p.speed + p.thr * 110 * dt, 55, 175);
@@ -90,6 +91,7 @@ static void hothPlayer(Player& p, float dt, bool fire) {
     // tow cable
     bool cab = false;
     if (p.bot) cab = p.botRoll; else { Dev* d = devById(p.dev); if (d) cab = pr(*d, B_X); }
+    if (p.cableReq) { cab = true; p.cableReq = false; }   // the rear gunner fires the tow cable
     if (cab && p.cable < 0) {
         int best = -1; float bd = 130;
         for (int i = 0; i < (int)WK.size(); i++) { auto& w = WK[i]; if (w.dead || w.fallT >= 0) continue; V3 d = wkLegsC(w) - p.pos; float hd = len3(V3(d.x, 0, d.z)); if (hd < bd && p.pos.y < (ATAT_HIP - ATAT_MINY) * HW_S + 10) { bd = hd; best = i; } }
@@ -108,13 +110,17 @@ static void hothPlayer(Player& p, float dt, bool fire) {
             }
         }
     }
-    if (fire && p.fireCd <= 0 && !G.over) {   // twin lasers: probes die, walkers shrug them off
-        p.fireCd = 0.15f; V3 me = p.pos, dir = p.fwd; float bestT = 800; int hp = -1, hw = -1;
+    if (fire && p.fireCd <= 0 && !G.over) hothShoot(p, p.pos, p.fwd, norm3(cross3(p.up, p.fwd)));
+}
+// twin lasers from a spot along a direction (the pilot's forward guns, or the rear gunner's): probes die, walkers shrug them off
+static void hothShoot(Player& p, V3 me, V3 dir, V3 rt) {
+    {
+        p.fireCd = 0.15f; float bestT = 800; int hp = -1, hw = -1;
         for (int i = 0; i < (int)PRB.size(); i++) { auto& q = PRB[i]; if (q.dead) continue; V3 oc = q.p - me; float t = dot3(oc, dir); if (t > 2 && t < bestT && dot3(oc, oc) - t * t < 7.5f * 7.5f) { bestT = t; hp = i; hw = -1; } }
         for (int i = 0; i < (int)WK.size(); i++) { if (WK[i].dead) continue; for (float t = 10; t < bestT; t += 6) if (wkHit(WK[i], me + dir * t, 0)) { bestT = t; hw = i; hp = -1; break; } }
         for (auto& b : G.balls) if (!b.dead) { V3 oc = b.p - me; float t = dot3(oc, dir); if (t > 2 && t < bestT && dot3(oc, oc) - t * t < 25) { b.dead = true; p.score += 30; G.flashes.push_back({ b.p, 0.2f, 0.2f, 5, C_BALL, false }); } }
-        V3 end = me + dir * bestT, rt = norm3(cross3(p.up, p.fwd));
-        for (int s = -1; s <= 1; s += 2) G.bolts.push_back({ me + rt * (s * 2.2f) + p.fwd * 1.5f, end, 0.15f, 0.15f, Col(255, 90, 70), 9, s, 1 });
+        V3 end = me + dir * bestT;
+        for (int s = -1; s <= 1; s += 2) G.bolts.push_back({ me + rt * (s * 2.2f) + dir * 1.5f, end, 0.15f, 0.15f, Col(255, 90, 70), p.crewOf >= 0 ? p.idx : 9, s, 1 });
         AU.play(SND_LASER, 0.35f, 0, 1.1f, 40);
         if (hp >= 0) { auto& q = PRB[hp]; q.hp -= 1; q.flash = 0.1f; if (q.hp <= 0) { q.dead = true; p.score += 500; p.kills++; explode3(q.p, 5, C_ENEMY); AU.play(SND_BOOM_S, 0.6f); } }
         if (hw >= 0) { G.flashes.push_back({ end, 0.15f, 0.15f, 4, C_WHITE, false }); if (WK[hw].msgT <= 0) { pmsg(p, "ARMOUR TOO STRONG - USE THE TOW CABLE (X)"); WK[hw].msgT = 6; } }
@@ -203,7 +209,7 @@ static void drawHothWorld(Canvas& cv, const Cam& cam, const Player* me) {
     for (auto& t : HTU) if (!t.dead && !PK_HTURRET.v.empty()) drawModel(cv, cam, PK_HTURRET, t.p + V3(0, HTUR_S * 0.85f, 0), V3(std::sin(t.yaw), 0, std::cos(t.yaw)), 0, HTUR_S, Col(180, 210, 255), 1.2f);
     for (auto& w : WK) if (!w.dead) drawWalker(cv, cam, w);
     for (auto& q : PRB) if (!q.dead && !PK_PROBE.v.empty()) drawModel(cv, cam, PK_PROBE, q.p, V3(std::sin(q.t * 0.3f), 0, std::cos(q.t * 0.3f)), 0, PROBE_S, q.flash > 0 ? C_WHITE : C_ENEMY, 1.3f);
-    for (auto& o : G.pl) if (o.joined && !o.down) {
+    for (auto& o : G.pl) if (o.joined && !o.down && o.crewOf < 0) {
         if (&o != me || viewThird(o)) { V3 rt = norm3(cross3(o.up, o.fwd)), up = cross3(o.fwd, rt); float cs = std::cos(o.bank * 1.2f), sn2 = std::sin(o.bank * 1.2f); V3 r2 = rt * cs - up * sn2, u2 = up * cs + rt * sn2;
             if (!PK_SPEEDER.v.empty()) drawModelRU(cv, cam, PK_SPEEDER, o.pos, o.fwd, r2, u2, SPEEDER_S * (&o == me ? 1 : visScale(cam.p, o.pos, 120, 800, 1.2f)), o.col, 1.3f, 1); }
         if (o.cable >= 0 && o.cable < (int)WK.size()) {   // the tow cable and its wraps round the legs

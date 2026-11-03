@@ -5,6 +5,30 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
+## v25 (3 Nov): two-seaters: Y-wing and snowspeeder rear gunners (md5 a90aee8c1ebb7dd3c126921c32a27bf8)
+- **Lobby:**
+  - In the main game, once a player has picked the ASSAULT BOMBER (Y-wing, ship 1), another player's Up/Down list also offers **REAR GUNNER - Px** (`p.ship = 10 + pilot`).
+  - In ICE PLANET mode the list is SNOWSPEEDER PILOT / REAR GUNNER - Px, for any other non-gunner player.
+  - Each ship takes one gunner; a pilot can't also be a gunner. The seat is dropped if the pilot leaves or changes ship.
+  - `startGame` sets `crewOf` (gunner → pilot) and `gunner` (pilot → gunner). Log line: `game: P2 is P1's rear gunner`.
+- **Rear gunner** (`crewUpdate`, active while `crewOn(p)`, i.e. not in the level 2 turret stations and not in Tank mode):
+  - Rides with the pilot. Position, shields and down/up state are copied each frame, and any hit on the gunner is forwarded to the pilot. The pilot's invulnerability window stops double hits.
+  - **Camera** at the back of the ship looking backwards. The stick (or Wii pointer) swivels the gun: yaw ±2.1 rad, pitch −0.45 to 0.95.
+  - **Firing:** fire shoots twin rear guns through the sight centre, using `playerFire` (or `hothShoot` on the ice planet). Overlay: `drawGunnerOverlay`.
+  - **Tow cable (Ice Planet):** X / 1 fires the pilot's tow cable (`P.cableReq`), so the pilot only has to circle. In the main game X just says "ice planet only".
+  - Gunners get no ship of their own drawn and no formation slot.
+  - The level 2 turret fight still gives every player their own Falcon station; the gunner reattaches after it.
+  - **Bot gunners** swing onto the nearest fighter, pursuer or probe and fire the cable near a walker.
+- Hoth's fire code is split out as `hothShoot(p, origin, dir, right)`.
+- **Test switch** `VS_CREW=1`: P2 rides with P1 (Y-wing in the main game), and with 4 players P4 rides with P3.
+- **Soak with bots:**
+  - main game, 2 players, 300 s;
+  - Ice Planet, 2 players: walkers tripped twice;
+  - main game, 4 players (two crews), 400 s: port hit.
+
+  All exit 0, and gunners scored kills.
+- Seen while testing, and not caused by this change: a Y-wing *bot* flying alone sometimes wanders off and never reaches the station (heavy turning). Humans fly fine.
+
 ## v24 (3 Nov): 3D sound with doppler; TIE engine loops (md5 05b4300f0f27cb37d68c01374bea6804)
 - **`AU.play3(snd, pos, vel, vol, pitch, gap, ref)`** (audio.h, a template so it can take the game's V3):
   - Each voice keeps its world position and velocity, and moves on by itself in the audio callback.
