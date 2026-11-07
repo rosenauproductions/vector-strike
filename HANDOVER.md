@@ -9,6 +9,7 @@ Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-d
 - The X-wing (STRIKE FIGHTER) fires one cannon per shot, in a repeating order Chris asked for: upper right, lower left, upper left, lower right (`XSEQ` in `playerFire`; `p.gun` now counts 0-3).
 - Fire rate (0.16 s) and the hitscan damage are unchanged, so the kill rate is unchanged.
 - Checked: cockpit screenshots of five shots in a row show LL, UL, LR, UR, LL.
+- **Installed on ARCADE-21 7 Nov ~15:30** (md5 verified). Web build in `web/dist` is current, but production on Vercel still needs Promote to Production (the classifier blocks Claude production deploys unless Chris OKs each one).
 - (A 3 Nov build used diagonal pairs instead; it was never deployed.)
 - The other ships still fire all four. The Falcon turrets alternate pairs on `p.gun & 1`, the rear gunner is unchanged.
 
