@@ -5,11 +5,12 @@
 
 Chris asked for a complete redo of the 1983 Atari vector arcade game (the line-drawn space trench shooter) for 1–4 players. Built as an **original** game with its own name, ships and fortress (no Star Wars names, ships or music) but the same play: wireframe 3D, first-person, three stages per wave.
 
-## v27 (3 Nov): X-wing cannons fire in turns (md5 46705317e8d8e4ce45eb04c6aa18724a)
-- The X-wing (STRIKE FIGHTER) now fires two cannons per shot in diagonal pairs that take turns: top-left + bottom-right, then top-right + bottom-left (`p.gun` flips each shot). Same fire rate (0.16 s) and same hitscan damage, so the kill rate is unchanged; it's the look and the alternating sound.
-- The other ships still fire all four. The Falcon turrets and the rear gunner are unchanged.
-- Code: `playerFire`, the `xw` check around the four-cannon loop.
-- **Not deployed yet**: the Batocera share dropped off Chris's Mac. Staged in `/mnt/user-data/outputs/vs-v27/`. The box has the v26 % build (4fc56be4). Web production still needs a Promote to Production.
+## v27 (7 Nov): X-wing cannons fire one at a time, crossing over (md5 7e2d11163a8a4b0f137c5e4532149f90)
+- The X-wing (STRIKE FIGHTER) fires one cannon per shot, in a repeating order Chris asked for: upper right, lower left, upper left, lower right (`XSEQ` in `playerFire`; `p.gun` now counts 0-3).
+- Fire rate (0.16 s) and the hitscan damage are unchanged, so the kill rate is unchanged.
+- Checked: cockpit screenshots of five shots in a row show LL, UL, LR, UR, LL.
+- (A 3 Nov build used diagonal pairs instead; it was never deployed.)
+- The other ships still fire all four. The Falcon turrets alternate pairs on `p.gun & 1`, the rear gunner is unchanged.
 
 ## v26 (3 Nov): solid ships: black bodies hide what's behind them (md5 05672018e4f39d96501f1844a3f55f03)
 - **What it does:** every model-pack ship (X-wing, TIE, Y-wing, B-wing, freighter, Star Destroyer, ace, Arwing, walker, snowspeeder, probe, Hoth turret) now has a black body. Lines on its far side, and stars, trench walls, towers and other ships behind it, no longer show through.
